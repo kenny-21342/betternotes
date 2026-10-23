@@ -2088,7 +2088,8 @@ private struct NewNotebookSheet: View {
     @State private var selectedLineOpacity = PageLineAppearance.defaultOpacity
     @State private var saveError: String?
 
-    init(onCreated: ((Notebook) -> Void)? = nil) {
+    init(folderName: String = "", onCreated: ((Notebook) -> Void)? = nil) {
+        self.folderName = folderName
         self.onCreated = onCreated
     }
 
