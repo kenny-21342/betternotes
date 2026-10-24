@@ -1059,6 +1059,65 @@ final class BetterNotesUITests: XCTestCase {
     @discardableResult
     // MARK: - Handwriting
 
+    /// Tapping a selection used to clear it, so its menu could not be reached
+    /// by tapping. A tap now shows or hides the menu and leaves the selection.
+    func testTappingASelectionTogglesItsMenuInsteadOfClearingIt() {
+        openNotebook(named: uniqueTitle("Selection Menu"))
+
+        app.buttons["Pen"].tap()
+        drawStroke(from: CGVector(dx: 0.30, dy: 0.26), to: CGVector(dx: 0.64, dy: 0.30))
+        drawStroke(from: CGVector(dx: 0.30, dy: 0.36), to: CGVector(dx: 0.64, dy: 0.40))
+
+        app.buttons["Lasso"].tap()
+        let canvas = app.scrollViews["page-canvas"]
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.18))
+            .press(
+                forDuration: 0.2,
+                thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.76, dy: 0.50)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.2
+            )
+
+        let bar = app.descendants(matching: .any)["selection-context-bar"]
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "the lasso did not select the hand-drawn strokes")
+        let outline = app.descendants(matching: .any)["selection-outline"]
+        XCTAssertTrue(outline.waitForExistence(timeout: 3))
+
+        outline.tap()
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 3), "tapping the selection did not hide its menu")
+        XCTAssertTrue(outline.exists, "tapping the selection cleared it")
+
+        outline.tap()
+        XCTAssertTrue(bar.waitForExistence(timeout: 3), "tapping the selection again did not bring its menu back")
+        XCTAssertTrue(bar.descendants(matching: .button)["Duplicate"].firstMatch.isHittable)
+    }
+
+    /// Single-page mode adds a page by pulling it aside; the continuous
+    /// vertical notebook does the same by pulling up past its last page.
+    func testPullingPastTheLastPageInVerticalScrollAddsAPage() {
+        app.terminate()
+        app.launchArguments.append("-ui-testing-vertical-scroll")
+        app.launch()
+        openNotebook(named: uniqueTitle("Vertical Pull"))
+
+        // One finger scrolls only when finger drawing is off.
+        openToolbarMenu(named: "More")
+        app.buttons["Draw with Finger"].tap()
+
+        let canvas = app.scrollViews["notebook-canvas"]
+        for _ in 0..<3 { canvas.swipeUp() }
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+            .press(
+                forDuration: 0.1,
+                thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0
+            )
+
+        let twoPages = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Page 2 of 2'")).firstMatch
+        XCTAssertTrue(twoPages.waitForExistence(timeout: 5), "pulling past the last page did not add one")
+    }
+
     func testLassoSelectsInkOnFirstTapInBothModes() {
         checkFirstTapLasso(vertical: false)
     }

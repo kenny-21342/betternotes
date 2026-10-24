@@ -128,7 +128,7 @@ targets:
       - target: BetterNotes
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.betternotes.app.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.kenny-lhs.betternotes.tests
         GENERATE_INFOPLIST_FILE: "YES"
   BetterNotesMacTests:
     type: bundle.unit-test
@@ -150,7 +150,7 @@ targets:
       - target: BetterNotes
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.betternotes.app.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.kenny-lhs.betternotes.uitests
         GENERATE_INFOPLIST_FILE: "YES"
 
 schemes:

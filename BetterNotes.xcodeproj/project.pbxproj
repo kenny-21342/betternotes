@@ -79,6 +79,7 @@
 		ABC0D06A481FAEB3B84FC013 /* SelectionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1B12A31579ACED17E943EB /* SelectionModels.swift */; };
 		B1449451DAF1E7F0C50C1C24 /* RichTextCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BAF6DC547124D2DBE7357BC /* RichTextCodec.swift */; };
 		B156E028502D4CC2E2BB4A87 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C830D7073F7B9C3BFCCA1BDB /* LibraryView.swift */; };
+		B2E522FE93859251216630F9 /* InkJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE83384561EFDF96E701CFDB /* InkJournal.swift */; };
 		B63B3998F68204EB847CBE05 /* AIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB6E06CF172354818AA9E115 /* AIModels.swift */; };
 		B8E92313FD163CDE126EE8F9 /* MacAssistantView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48682C872488B937AB05C66F /* MacAssistantView.swift */; };
 		C0CEB2C71563A5222461301D /* OCRPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 338C818BADBEBF918D328916 /* OCRPipelineTests.swift */; };
@@ -209,6 +210,7 @@
 		B8BCDD82F24C3F77AA0D4534 /* NearbyFolderSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyFolderSyncTests.swift; sourceTree = "<group>"; };
 		BA8F436377C7C7ECBE303EB2 /* BetterNotes.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BetterNotes.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB821B78D8A3425010FB5E95 /* AISettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISettingsStoreTests.swift; sourceTree = "<group>"; };
+		BE83384561EFDF96E701CFDB /* InkJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkJournal.swift; sourceTree = "<group>"; };
 		BF03EEC0715CC804E4BDE771 /* BetterNotesUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BetterNotesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BFF8A603D6FB89AB4A4F2CB3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C123572A38F6C31E4880C86C /* EditorToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorToolbar.swift; sourceTree = "<group>"; };
@@ -414,6 +416,7 @@
 				0C360D63E1308ED129819F87 /* CloudTranslator.swift */,
 				B85A1739C346569F1B05C948 /* DocumentImporter.swift */,
 				4B66873371464A347F0B858A /* HandwritingOCR.swift */,
+				BE83384561EFDF96E701CFDB /* InkJournal.swift */,
 				D252DDCC1A096D4367E3DE41 /* InkQuestion.swift */,
 				1867CF35EE8B173CCDFC863A /* InterruptedAnswerRecovery.swift */,
 				E38E4C2EC1FC1546AA12FEC6 /* MemoryDiagnostics.swift */,
@@ -739,6 +742,7 @@
 				8733568C0D7DF890122F6604 /* ElementOverlay.swift in Sources */,
 				0B397AF2BC2A3E7977791131 /* FolderBrowserComponents.swift in Sources */,
 				A24A2A4E870DB73B07BD3874 /* HandwritingOCR.swift in Sources */,
+				B2E522FE93859251216630F9 /* InkJournal.swift in Sources */,
 				F00395C19CD56F8B2C1447A5 /* InkQuestion.swift in Sources */,
 				7771CC7CA1BEFDEC9AB28378 /* InterruptedAnswerRecovery.swift in Sources */,
 				B156E028502D4CC2E2BB4A87 /* LibraryView.swift in Sources */,
@@ -843,7 +847,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.betternotes.app.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.kenny-lhs.betternotes.tests";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BetterNotes.app/BetterNotes";
@@ -1010,7 +1014,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.betternotes.app.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.kenny-lhs.betternotes.uitests";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = BetterNotes;
@@ -1054,7 +1058,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.betternotes.app.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.kenny-lhs.betternotes.tests";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BetterNotes.app/BetterNotes";
@@ -1088,7 +1092,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.betternotes.app.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.kenny-lhs.betternotes.uitests";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = BetterNotes;

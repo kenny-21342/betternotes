@@ -90,14 +90,34 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate, 
             return false
         }
 
-        do {
-            let recorder = try AVAudioRecorder(url: url, settings: settings)
-            recorder.delegate = self
-            guard recorder.prepareToRecord(), recorder.record() else {
-                throw AudioRecordingError.couldNotStart
+        // Creating, preparing and starting the recorder all wait on the audio
+        // hardware -- seconds over Bluetooth -- exactly as AVAudioPlayer's
+        // prepareToPlay does, so none of it may run on the main thread. The
+        // recording bar only appears once isRecording flips, so a stall here
+        // looked like the dialog never showing and the app freezing.
+        let started = Date()
+        let result = await Task.detached(priority: .userInitiated) { () -> Result<UncheckedRecorder, Error> in
+            Result {
+                let recorder = try AVAudioRecorder(url: url, settings: settings)
+                guard recorder.prepareToRecord(), recorder.record() else {
+                    throw AudioRecordingError.couldNotStart
+                }
+                return UncheckedRecorder(recorder)
             }
-            self.recorder = recorder
-        } catch {
+        }.value
+        Self.log("recorder start took \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+
+        guard recordingRequestID == requestID else {
+            if case .success(let box) = result { box.recorder?.stop() }
+            try? FileManager.default.removeItem(at: url)
+            deactivateAudioSession()
+            return false
+        }
+        switch result {
+        case .success(let box):
+            box.recorder?.delegate = self
+            self.recorder = box.recorder
+        case .failure(let error):
             recordingRequestID = nil
             try? FileManager.default.removeItem(at: url)
             deactivateAudioSession()
@@ -112,45 +132,70 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate, 
     }
 
     @discardableResult
-    func stopRecording() -> Data? {
+    func stopRecording() async -> Data? {
         recordingRequestID = nil
         guard isRecording else { return nil }
         isRecording = false
         stopTick()
         elapsed = 0
 
-        guard let url = currentURL else {
+        let recorder = self.recorder
+        let url = currentURL
+        self.recorder = nil
+        currentURL = nil
+        guard let url else {
             recorder?.stop()
-            recorder = nil
             deactivateAudioSession()
             lastError = AppLocalization.text("The recording file could not be found.")
             return nil
         }
 
         // AVAudioRecorder.stop() is asynchronous — the encoder may still be
-        // flushing to disk when we try to read. Wait briefly for the file to
-        // be fully written before reading. Without this, Data(contentsOf:)
-        // can race the encoder and return a truncated/empty file, losing the
-        // recording.
-        recorder?.stop()
-        let recorderRef = recorder
-        let deadline = Date().addingTimeInterval(2.0)
-        while recorderRef?.isRecording == true, Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.005)
-        }
+        // flushing to disk when we try to read. Wait for the file to be fully
+        // written before reading, or Data(contentsOf:) can race the encoder
+        // and return a truncated/empty file, losing the recording. The wait
+        // (up to 2 s) used to sleep on the main thread, freezing the app on
+        // Stop; it now runs on a background thread.
+        let boxed = UncheckedRecorder(recorder)
+        let started = Date()
+        let result = await Task.detached(priority: .userInitiated) { () -> Result<Data, Error> in
+            boxed.recorder?.stop()
+            let deadline = Date().addingTimeInterval(2.0)
+            while boxed.recorder?.isRecording == true, Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.005)
+            }
+            defer { try? FileManager.default.removeItem(at: url) }
+            return Result {
+                let data = try Data(contentsOf: url)
+                guard !data.isEmpty else { throw AudioRecordingError.emptyFile }
+                return data
+            }
+        }.value
+        Self.log("recorder stop took \(Int(Date().timeIntervalSince(started) * 1000)) ms")
 
-        deactivateAudioSession()
-        currentURL = nil
-        recorder = nil
-        defer { try? FileManager.default.removeItem(at: url) }
-        do {
-            let data = try Data(contentsOf: url)
-            guard !data.isEmpty else { throw AudioRecordingError.emptyFile }
+        // A new recording may have begun while this one flushed; leave its
+        // session alone.
+        if !isRecording { deactivateAudioSession() }
+        switch result {
+        case .success(let data):
             return data
-        } catch {
+        case .failure(let error):
             lastError = AppLocalization.format("The recording could not be saved. %@", error.localizedDescription)
             return nil
         }
+    }
+
+    /// AVAudioRecorder is not Sendable, but each instance is handed to exactly
+    /// one background task at a time and used only there.
+    private struct UncheckedRecorder: @unchecked Sendable {
+        let recorder: AVAudioRecorder?
+        init(_ recorder: AVAudioRecorder?) { self.recorder = recorder }
+    }
+
+    private static func log(_ message: String) {
+        #if DEBUG
+        print("audio: \(message)")
+        #endif
     }
 
     func cancelPendingRecording() {

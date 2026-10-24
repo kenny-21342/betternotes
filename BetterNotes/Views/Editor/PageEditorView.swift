@@ -168,6 +168,8 @@ struct PageEditorView: View {
 
     /// Shared selection for ink strokes and page elements.
     @State private var selectionState = SelectionState()
+    /// Set by tapping the selection; a new selection always starts with its menu shown.
+    @State private var selectionMenuHidden = false
     @State private var lockedExcludedElementIDs: Set<PersistentIdentifier> = []
 
     /// The element currently being written into by the assistant.
@@ -376,28 +378,7 @@ struct PageEditorView: View {
     private var editorInteractions: some View {
         editorSurface
         .overlay(alignment: .bottom) {
-            if !selectionState.isEmpty, !isReadOnly {
-                SelectionContextBar(
-                    canAsk: canAskAboutSelection,
-                    onAsk: askAboutSelection,
-                    canPaste: clipboardPayload() != nil,
-                    canLock: !selectionState.elementIDs.isEmpty,
-                    canBringForward: canMoveSelectionElements(forward: true),
-                    canSendBackward: canMoveSelectionElements(forward: false),
-                    canCustomizeTape: customizableSelectedTape != nil,
-                    onCut: cutSelection,
-                    onCopy: copySelection,
-                    onPaste: pasteSelection,
-                    onDuplicate: duplicateSelection,
-                    onDelete: deleteSelection,
-                    onLock: lockSelection,
-                    onBringForward: { moveSelectionElements(forward: true) },
-                    onSendBackward: { moveSelectionElements(forward: false) },
-                    onCustomizeTape: { editingTapeElement = customizableSelectedTape }
-                )
-                .padding(.bottom, 16 + toolbarObstruction.bottomClearance)
-                .zIndex(61)
-            } else if let selectedElement, !isReadOnly {
+            if selectionState.isEmpty, let selectedElement, !isReadOnly {
                 SelectedElementControls(
                     elementType: selectedElement.type,
                     isLocked: selectedElement.isLocked,
@@ -765,8 +746,12 @@ struct PageEditorView: View {
                     },
                     onMutationBegan: beginInkSelectionMutation,
                     onMutationEnded: finishInkSelectionMutation,
-                    onClear: clearSelection
+                    onTapBody: { selectionMenuHidden.toggle() }
                 )
+            }
+
+            if !isReadOnly, !selectionState.isEmpty, !selectionState.bounds.isNull, !selectionMenuHidden {
+                selectionMenu
             }
             LockedSelectionMarkers(elements: page.elements.filter { lockedExcludedElementIDs.contains($0.id) })
         }
@@ -919,6 +904,7 @@ struct PageEditorView: View {
         // Accessing any property on a deleted SwiftData model can crash,
         // so check modelContext first (it becomes nil when deleted).
         guard let targetPage, targetPage.modelContext != nil else { return }
+        InkJournal.record("ink.save", strokes: currentDrawing.strokes.count)
         targetPage.inkData = currentDrawing.dataRepresentation()
     }
 
@@ -929,6 +915,7 @@ struct PageEditorView: View {
             canvas.drawing = PKDrawing()
         }
         lastRecordedStrokeCount = canvas.drawing.strokes.count
+        InkJournal.record("ink.load", strokes: lastRecordedStrokeCount)
     }
 
     private func switchLoadedPage() {
@@ -1509,6 +1496,7 @@ struct PageEditorView: View {
     private var currentDrawing: PKDrawing { pendingCanvasDrawing.drawing ?? canvas.drawing }
 
     private func setCanvasDrawing(_ drawing: PKDrawing) {
+        InkJournal.record("canvas.set", strokes: drawing.strokes.count, "was=\(canvas.drawing.strokes.count)")
         isApplyingProgrammaticChange = true
         let pending = pendingCanvasDrawing
         pending.generation &+= 1
@@ -1763,7 +1751,9 @@ struct PageEditorView: View {
 
     private func apply(_ snapshot: PageHistory.Snapshot) {
         page.inkData = snapshot.ink
-        setCanvasDrawing(snapshot.ink.flatMap { try? PKDrawing(data: $0) } ?? PKDrawing())
+        let restoredDrawing = snapshot.ink.flatMap { try? PKDrawing(data: $0) } ?? PKDrawing()
+        InkJournal.record("history.apply", strokes: restoredDrawing.strokes.count, "was=\(currentDrawing.strokes.count)")
+        setCanvasDrawing(restoredDrawing)
         let existingIDs = Dictionary(uniqueKeysWithValues: page.elements.map { ($0.id, $0) })
         let snapshotIDs = Set(snapshot.elements.map { $0.id })
         var restored: [PageElement] = []
@@ -2305,6 +2295,7 @@ struct PageEditorView: View {
         let elementIDs = Set(unlocked.map(\.id))
         selectedElementID = unlocked.last?.id
         let state = SelectionState(strokeIndices: strokeIndices, elementIDs: elementIDs, bounds: combinedBounds(strokes: strokeIndices, elements: elementIDs))
+        selectionMenuHidden = false
         selectionState = state
     }
 
@@ -2320,10 +2311,65 @@ struct PageEditorView: View {
         lockedExcludedElementIDs = Set(candidates.filter(\.isLocked).map(\.id))
         let elementIDs = Set(unlocked.map(\.id))
         selectedElementID = unlocked.last?.id
+        selectionMenuHidden = false
         selectionState = SelectionState(strokeIndices: strokeIndices, elementIDs: elementIDs, bounds: combinedBounds(strokes: strokeIndices, elements: elementIDs))
     }
 
+    /// The edit menu for the current selection, placed beside it on the page
+    /// (above the rotate handle when there is room, else below). It lives on
+    /// the page rather than at the screen's bottom edge: in vertical mode the
+    /// page's bottom edge is usually far out of view. It is counter-scaled so
+    /// it stays a readable size however far the page is zoomed.
+    private var selectionMenu: some View {
+        let tape = customizableSelectedTape != nil
+        let width = SelectionContextBar.width(canCustomizeTape: tape)
+        let center = selectionMenuCenter(width: width)
+        let scale = min(max(1 / max(zoomScale, 0.01), 0.2), 2)
+        return SelectionContextBar(
+            canAsk: canAskAboutSelection,
+            onAsk: askAboutSelection,
+            canPaste: clipboardPayload() != nil,
+            canLock: !selectionState.elementIDs.isEmpty,
+            canBringForward: canMoveSelectionElements(forward: true),
+            canSendBackward: canMoveSelectionElements(forward: false),
+            canCustomizeTape: tape,
+            onCut: cutSelection,
+            onCopy: copySelection,
+            onPaste: pasteSelection,
+            onDuplicate: duplicateSelection,
+            onDelete: deleteSelection,
+            onLock: lockSelection,
+            onBringForward: { moveSelectionElements(forward: true) },
+            onSendBackward: { moveSelectionElements(forward: false) },
+            onCustomizeTape: { editingTapeElement = customizableSelectedTape }
+        )
+        .scaleEffect(scale)
+        // `.position`, not `.offset`: the frame must move with the pixels or
+        // the accessibility system (and XCUITest) aims at the wrong place.
+        .position(x: center.x, y: center.y)
+        .zIndex(61)
+    }
+
+    private func selectionMenuCenter(width: CGFloat) -> CGPoint {
+        let bounds = selectionState.bounds
+        let size = page.pageOrientation.size
+        let height = SelectionContextBar.height
+        let x = min(max(bounds.midX, width / 2 + 8), max(size.width - width / 2 - 8, width / 2 + 8))
+        let above = bounds.minY - 56 - height / 2
+        let below = bounds.maxY + 16 + height / 2
+        let y: CGFloat
+        if above - height / 2 >= 8 {
+            y = above
+        } else if below + height / 2 <= size.height - 8 {
+            y = below
+        } else {
+            y = min(max(bounds.midY, height / 2 + 8), max(size.height - height / 2 - 8, height / 2 + 8))
+        }
+        return CGPoint(x: x, y: y)
+    }
+
     private func clearSelection() {
+        selectionMenuHidden = false
         selectionState.clear()
         lockedExcludedElementIDs.removeAll()
         selectedElementID = nil
@@ -2556,6 +2602,7 @@ struct PageEditorView: View {
         guard !isReadOnly, !selectionState.isEmpty else { return }
         recordBeforeMutation()
         let retainedStrokes = currentDrawing.strokes.enumerated().compactMap { selectionState.strokeIndices.contains($0.offset) ? nil : $0.element }
+        InkJournal.record("selection.delete", strokes: retainedStrokes.count, "was=\(currentDrawing.strokes.count) removed=\(selectionState.strokeIndices.count)")
         setCanvasDrawing(PKDrawing(strokes: retainedStrokes))
         let removed = page.elements.filter { selectionState.elementIDs.contains($0.id) && !$0.isLocked }
         page.elements.removeAll { element in removed.contains(where: { $0.id == element.id }) }
@@ -2605,6 +2652,7 @@ struct PageEditorView: View {
         guard !isTransformingInkSelection else { return }
         handwritingOCRTask?.cancel()
         recordBeforeMutation()
+        InkJournal.record("selection.begin", strokes: currentDrawing.strokes.count, "selected=\(selectionState.strokeIndices.count)")
         selectionMutation.drawing = currentDrawing
         selectionMutation.page = page
         selectionMutation.originalBounds = selectionState.bounds
@@ -2626,6 +2674,8 @@ struct PageEditorView: View {
             setCanvasDrawing(PKDrawing(strokes: strokes))
         }
         (canvas.superview as? InkCanvasViewport)?.endSelectionPreview()
+        let t = selectionMutation.transform
+        InkJournal.record("selection.commit", strokes: currentDrawing.strokes.count, "selected=\(selectionState.strokeIndices.count) transform=\(t.a),\(t.b),\(t.c),\(t.d),\(t.tx),\(t.ty)")
         let target = selectionMutation.page ?? page
         selectionMutation = InkSelectionMutation()
         isTransformingInkSelection = false
@@ -2778,24 +2828,33 @@ struct PageEditorView: View {
         // may still be awaiting permission when the user taps Stop.
         audio.cancelPendingRecording()
         guard let element = recordingElement else { return }
+        // Claim the element now so a second tap, or a page switch while the
+        // file flushes, cannot finish it twice.
+        recordingElement = nil
         let duration = audio.elapsed
-        let data = audio.isRecording ? audio.stopRecording() : nil
-        if let idx = page.elements.firstIndex(where: { $0.id == element.id }) {
+        let wasRecording = audio.isRecording
+        let owningPage = element.page ?? page
+        Task { @MainActor in
+            // Stopping waits for the encoder to flush, off the main thread.
+            let data = wasRecording ? await audio.stopRecording() : nil
+            guard element.modelContext != nil else { return }
             if save, let data, !data.isEmpty {
-                page.elements[idx].audioData = data
-                page.elements[idx].audioDuration = duration
-                page.elements[idx].text = "Recording (\(formatDuration(duration)))"
+                element.audioData = data
+                element.audioDuration = duration
+                element.text = "Recording (\(formatDuration(duration)))"
             } else {
-                context.delete(page.elements[idx])
-                page.elements.remove(at: idx)
+                if let idx = owningPage.elements.firstIndex(where: { $0.id == element.id }) {
+                    owningPage.elements.remove(at: idx)
+                }
+                context.delete(element)
                 if selectedElementID == element.id {
                     selectedElementID = nil
                 }
             }
+            owningPage.modifiedAt = .now
+            owningPage.notebook?.modifiedAt = .now
+            saveChanges()
         }
-        recordingElement = nil
-        markPageModified()
-        saveChanges()
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
@@ -3191,7 +3250,8 @@ private struct SelectionHandles: View {
     var onMove: (CGSize) -> Void
     var onMutationBegan: () -> Void
     var onMutationEnded: () -> Void
-    var onClear: () -> Void
+    /// A tap on the selection itself shows or hides its menu.
+    var onTapBody: () -> Void
 
     @State private var drag = IncrementalDrag()
     @State private var gestureActive = false
@@ -3219,7 +3279,7 @@ private struct SelectionHandles: View {
                 .offset(x: bounds.minX, y: bounds.minY)
                 .accessibilityHidden(true)
 
-            // Drag-to-move body (tap to clear, drag to move).
+            // Drag-to-move body (tap to show or hide the menu, drag to move).
             //
             // Positioned rather than offset. `.offset` is a rendering
             // transform: it moves what you see and what a finger hits, but
@@ -3231,7 +3291,7 @@ private struct SelectionHandles: View {
             // outside it, so the lasso layer below took the touch, cleared the
             // selection and began drawing a new one. `.position` places the
             // view's centre, so the layout frame and the visible outline agree.
-            Button(action: onClear) {
+            Button(action: onTapBody) {
                 Rectangle()
                     .fill(Color.black.opacity(0.001))
                     .frame(width: bounds.width, height: bounds.height)
@@ -3739,56 +3799,42 @@ private struct SelectionContextBar: View {
     var onSendBackward: () -> Void
     var onCustomizeTape: () -> Void
 
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 0) { clipboardActions; selectionActions; assistantActions }
-            VStack(spacing: 0) {
-                HStack(spacing: 0) { clipboardActions; assistantActions }
-                selectionActions
-            }
-            VStack(spacing: 0) {
-                clipboardActions
-                selectionActions
-                assistantActions
-            }
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("selection-context-bar")
+    /// One fixed-width row, like the system edit menu, so the page can place it
+    /// beside the selection without having to measure it. Rarely used actions
+    /// sit behind the trailing ellipsis rather than widening the row.
+    static func width(canCustomizeTape: Bool) -> CGFloat {
+        CGFloat(7 + (canCustomizeTape ? 1 : 0)) * 44 + 14
     }
+    static let height: CGFloat = 54
 
-    private var clipboardActions: some View {
+    var body: some View {
         HStack(spacing: 0) {
             action("scissors", "Cut", onCut)
             action("doc.on.doc", "Copy", onCopy)
             action("doc.on.clipboard", "Paste", onPaste).disabled(!canPaste)
             action("plus.square.on.square", "Duplicate", onDuplicate)
-        }
-    }
-
-    /// The ink-first route into the assistant: circle what you wrote, tap this,
-    /// and the answer is written onto the page beside it -- no chat box, no
-    /// leaving the page.
-    private var assistantActions: some View {
-        HStack(spacing: 0) {
+            action("trash", "Delete", onDelete)
             action("sparkles", "Ask", onAsk).disabled(!canAsk)
-        }
-    }
-
-    private var selectionActions: some View {
-        HStack(spacing: 0) {
             if canCustomizeTape {
                 action("slider.horizontal.3", "Tape Options", onCustomizeTape)
             }
-            action("trash", "Delete", onDelete)
-            action("lock", "Lock", onLock).disabled(!canLock)
-            action("arrow.up", "Bring Forward", onBringForward).disabled(!canBringForward)
-            action("arrow.down", "Send Backward", onSendBackward).disabled(!canSendBackward)
+            Menu {
+                Button("Lock", systemImage: "lock", action: onLock).disabled(!canLock)
+                Button("Bring Forward", systemImage: "arrow.up", action: onBringForward).disabled(!canBringForward)
+                Button("Send Backward", systemImage: "arrow.down", action: onSendBackward).disabled(!canSendBackward)
+            } label: {
+                Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("More Selection Actions")
         }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .frame(width: Self.width(canCustomizeTape: canCustomizeTape), height: Self.height)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("selection-context-bar")
     }
 
     private func action(_ icon: String, _ label: String, _ handler: @escaping () -> Void) -> some View {

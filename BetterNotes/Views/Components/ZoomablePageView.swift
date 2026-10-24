@@ -456,6 +456,7 @@ struct ZoomablePageView<Content: View>: UIViewRepresentable {
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             if isZoomEnabled { updateInkViewport(in: contentView, scrollView: scrollView) }
             reportVisiblePageCenter(scrollView, pageSize: lastPageSize)
+            reportBottomOverscroll(scrollView)
         }
 
         func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
@@ -494,6 +495,37 @@ struct ZoomablePageView<Content: View>: UIViewRepresentable {
 
         private var pullIsEligible = false
         private var isPullingToAddPage = false
+
+        /// Single-page mode pulls the page sideways; the continuous vertical
+        /// notebook instead reports how far the scroll view is dragged past
+        /// its bottom edge (see `reportBottomOverscroll`).
+        private var horizontalPullEnabled: Bool { canPullToAddPage && !continuousScrolling }
+        private var isPullingPastBottom = false
+        private var lastBottomOverscroll: CGFloat = 0
+
+        /// Points the content is dragged past the bottom, 0 when it is not.
+        private func bottomOverscroll(_ scrollView: UIScrollView) -> CGFloat {
+            let maxOffsetY = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+            return max(0, scrollView.contentOffset.y - max(maxOffsetY, 0))
+        }
+
+        private func reportBottomOverscroll(_ scrollView: UIScrollView) {
+            guard continuousScrolling, canPullToAddPage, scrollView.isDragging else { return }
+            let overscroll = bottomOverscroll(scrollView)
+            if overscroll > 0 || isPullingPastBottom {
+                isPullingPastBottom = true
+                lastBottomOverscroll = overscroll
+                onPullToAddPage(.changed(overscroll))
+            }
+        }
+
+        func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+            guard isPullingPastBottom else { return }
+            isPullingPastBottom = false
+            // Velocity is points per millisecond; a fast upward flick commits early.
+            onPullToAddPage(.ended(distance: lastBottomOverscroll, flick: velocity.y > 1.2))
+            lastBottomOverscroll = 0
+        }
 
         /// True when the page cannot scroll any further to the right, so a
         /// leftward drag is a request for the next page and not a pan of a
@@ -543,7 +575,7 @@ struct ZoomablePageView<Content: View>: UIViewRepresentable {
         }
 
         @objc private func handlePageSwipePan(_ gesture: UIPanGestureRecognizer) {
-            if canPullToAddPage, let scrollView = gesture.view as? UIScrollView,
+            if horizontalPullEnabled, let scrollView = gesture.view as? UIScrollView,
                handleAddPagePull(gesture, in: scrollView) {
                 return
             }
@@ -561,7 +593,7 @@ struct ZoomablePageView<Content: View>: UIViewRepresentable {
             let direction: PageSwipeDirection = directionValue < 0 ? .next : .previous
             // On the last page the next page is added only by pulling, which
             // shows the pull and asks for a full drag, not by a bare swipe.
-            if canPullToAddPage && direction == .next { return }
+            if horizontalPullEnabled && direction == .next { return }
             onPageSwipe(direction)
         }
 

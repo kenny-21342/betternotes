@@ -34,9 +34,10 @@ final class AudioRecorderTests: XCTestCase {
 
     // MARK: - Guards
 
-    func testStoppingWhenNotRecordingReturnsNothing() {
+    func testStoppingWhenNotRecordingReturnsNothing() async {
         let recorder = AudioRecorder()
-        XCTAssertNil(recorder.stopRecording())
+        let stopped = await recorder.stopRecording()
+        XCTAssertNil(stopped)
         XCTAssertFalse(recorder.isRecording)
     }
 

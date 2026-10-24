@@ -717,6 +717,7 @@ struct PaperCanvas: UIViewRepresentable {
             let count = canvasView.drawing.strokes.count
 
             if isApplyingProgrammaticDrawing {
+                InkJournal.record("canvas.programmatic", strokes: count, "notified=\(!suppressesProgrammaticDrawingNotification)")
                 lastStrokeCount = count
                 if !suppressesProgrammaticDrawingNotification {
                     parent.onDrawingChange?(count)
@@ -726,7 +727,10 @@ struct PaperCanvas: UIViewRepresentable {
 
             // A Pencil tap on tape is not ink: drop the dot PencilKit publishes
             // for it before the editor hears about it.
-            if removeTapDotIfPublished(on: canvasView) { return }
+            if removeTapDotIfPublished(on: canvasView) {
+                InkJournal.record("canvas.tap-dot-removed", strokes: canvasView.drawing.strokes.count)
+                return
+            }
 
             // PencilKit can spontaneously republish strokes it had already
             // dropped -- from an undo, a redo, or an erase -- the instant a
@@ -763,6 +767,7 @@ struct PaperCanvas: UIViewRepresentable {
                 awaitingResurrectionCheck = false
                 let baselineCount = settledDrawingAtToolBegin.strokes.count
                 if count > baselineCount + 1, let newest = canvasView.drawing.strokes.last {
+                    InkJournal.record("canvas.resurrection-trimmed", strokes: baselineCount + 1, "published=\(count) baseline=\(baselineCount)")
                     let corrected = PKDrawing(strokes: settledDrawingAtToolBegin.strokes + [newest])
                     canvasView.drawing = corrected
                     return
@@ -805,6 +810,7 @@ struct PaperCanvas: UIViewRepresentable {
             let isNonInkTool = parent.tool.inkType == nil
 
             if isNonInkTool || count < lastStrokeCount {
+                InkJournal.record("canvas.erase-or-non-ink", strokes: count, "was=\(lastStrokeCount) nonInkTool=\(isNonInkTool)")
                 if count < lastStrokeCount {
                     committedShapePreview = nil
                     shapeCommitClearTimer?.invalidate()
@@ -822,6 +828,7 @@ struct PaperCanvas: UIViewRepresentable {
                 return
             }
 
+            InkJournal.record("canvas.change", strokes: count, "was=\(lastStrokeCount)")
             parent.onDrawingChange?(count)
             lastStrokeCount = count
         }

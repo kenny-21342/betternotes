@@ -173,6 +173,8 @@ struct NotebookView: View {
     @State private var pageZoomRatio: CGFloat = 1
     @State private var pageZoomCommand: PageZoomCommand?
     @State private var verticalVisibleRect: CGRect = .zero
+    /// Points the vertical notebook is dragged past its last page.
+    @State private var verticalAddPagePull: CGFloat = 0
     @State private var verticalScrollCommand: PageScrollCommand?
     @State private var verticalPagePanRequirements: [PersistentIdentifier: Bool] = [:]
     @State private var editorCanUndo = false
@@ -219,6 +221,14 @@ struct NotebookView: View {
             } else if !sortedPages.isEmpty {
                 if scrollMode == .verticalScroll {
                     verticalScrollContent
+                        .overlay(alignment: .bottom) {
+                            if verticalAddPagePull > 0 {
+                                VerticalAddPageIndicator(
+                                    progress: verticalAddPagePull / Self.verticalAddPageThreshold,
+                                    revealedHeight: verticalAddPagePull
+                                )
+                            }
+                        }
                 } else {
                     let currentPage = sortedPages[safePageIndex]
                     PageEditorView(
@@ -433,6 +443,8 @@ struct NotebookView: View {
             panRequiresTwoFingers: !isReadOnly && (allowsFingerDrawing || editorTool == .lasso || verticalPagePanRequirements.values.contains(true)),
             continuousScrolling: true,
             zoomReferenceSize: sortedPages[safePageIndex].pageOrientation.size,
+            canPullToAddPage: !isReadOnly,
+            onPullToAddPage: handleVerticalAddPagePull,
             zoomCommand: $pageZoomCommand,
             zoomScale: $pageZoomScale,
             zoomRatio: $pageZoomRatio,
@@ -865,6 +877,28 @@ struct NotebookView: View {
             } else {
                 nextPage()
             }
+        }
+    }
+
+    // MARK: - Pull past the last page (vertical scroll)
+
+    private static let verticalAddPageThreshold: CGFloat = 100
+    private static let verticalAddPageMinimumFlickDistance: CGFloat = 40
+
+    private func handleVerticalAddPagePull(_ event: PageEdgePull) {
+        guard !isReadOnly else { return }
+        switch event {
+        case .changed(let distance):
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { verticalAddPagePull = distance }
+        case .ended(let distance, let flick):
+            let commits = distance >= Self.verticalAddPageThreshold
+                || (flick && distance >= Self.verticalAddPageMinimumFlickDistance)
+            withAnimation(.easeOut(duration: 0.2)) { verticalAddPagePull = 0 }
+            if commits { addNewPage() }
+        case .cancelled:
+            withAnimation(.easeOut(duration: 0.2)) { verticalAddPagePull = 0 }
         }
     }
 
@@ -1914,5 +1948,42 @@ private struct ThumbnailElement: View {
             }
         }
         .frame(width: element.width * scale, height: element.height * scale)
+    }
+}
+
+/// Shown in the strip uncovered when the vertical notebook is pulled past its
+/// last page: a ring that fills toward the threshold, and what releasing does.
+private struct VerticalAddPageIndicator: View {
+    let progress: CGFloat
+    let revealedHeight: CGFloat
+
+    var body: some View {
+        let ready = progress >= 1
+        let tint: Color = ready ? .green : .blue
+        let caption = AppLocalization.text(ready ? "Release to Add Page" : "Pull to Add Page")
+        HStack(spacing: 10) {
+            ZStack {
+                Circle().stroke(Color.secondary.opacity(0.25), lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: min(max(progress, 0), 1))
+                    .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: ready ? "doc.badge.plus" : "arrow.up")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(tint)
+            }
+            .frame(width: 30, height: 30)
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: max(revealedHeight, 0))
+        .opacity(min(1, revealedHeight / 40))
+        .clipped()
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("pull-to-add-page")
+        .accessibilityLabel(caption)
     }
 }
