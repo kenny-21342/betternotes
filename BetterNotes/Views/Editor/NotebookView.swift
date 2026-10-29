@@ -175,6 +175,8 @@ struct NotebookView: View {
     @State private var verticalVisibleRect: CGRect = .zero
     /// Points the vertical notebook is dragged past its last page.
     @State private var verticalAddPagePull: CGFloat = 0
+    /// Recording controls for the vertical notebook, drawn in its viewport.
+    @StateObject private var recordingHUD = RecordingHUDModel()
     @State private var verticalScrollCommand: PageScrollCommand?
     @State private var verticalPagePanRequirements: [PersistentIdentifier: Bool] = [:]
     @State private var editorCanUndo = false
@@ -221,6 +223,11 @@ struct NotebookView: View {
             } else if !sortedPages.isEmpty {
                 if scrollMode == .verticalScroll {
                     verticalScrollContent
+                        .overlay(alignment: .bottomLeading) {
+                            RecordingHUDView(model: recordingHUD)
+                                .padding(.leading, 16)
+                                .padding(.bottom, 84)
+                        }
                         .overlay(alignment: .bottom) {
                             if verticalAddPagePull > 0 {
                                 VerticalAddPageIndicator(
@@ -480,6 +487,7 @@ struct NotebookView: View {
                         // view; the shared ZoomablePageView above drives
                         // pageZoomScale for every page at once.
                         managesOwnZoom: false,
+                        recordingHUD: recordingHUD,
                         externalVisiblePageCenter: layout.visibleCenter(for: index, viewport: verticalVisibleRect),
                         onPageInteraction: { editorState.currentPageIndex = index },
                         onPanRequirementChange: { required in

@@ -414,7 +414,10 @@ final class ArchiveRoundTripTests: XCTestCase {
     }
 
     func testKeepBothIsTheDefaultAndKeepsEveryEdit() {
-        XCTAssertEqual(NearbyConflictPolicy.stored, .keepBoth)
+        // An empty defaults suite, not the app's own: the simulator keeps a
+        // policy a UI test chose, and a device keeps the owner's real setting.
+        let empty = UserDefaults(suiteName: "test.\(UUID().uuidString)")!
+        XCTAssertEqual(NearbyConflictPolicy.value(in: empty), .keepBoth)
         XCTAssertEqual(conflict(.keepBoth, localIsMac: true), .saveConflictCopy)
         XCTAssertEqual(conflict(.keepBoth, localIsMac: true, receivingFirst: true), .preserveLocalAndReplace)
     }

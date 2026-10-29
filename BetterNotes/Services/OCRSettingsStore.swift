@@ -110,7 +110,7 @@ final class OCRSettingsStore: ObservableObject {
 
 enum OCRError: LocalizedError {
     case invalidEndpoint, missingToken, missingModel, invalidResponse, emptyQuestion, unreadableImage
-    case imageTooLarge, responseTooLarge
+    case imageTooLarge, responseTooLarge, localRecognitionFailed
     case provider(Int), secureStorage(OSStatus)
 
     var errorDescription: String? {
@@ -121,6 +121,7 @@ enum OCRError: LocalizedError {
         case .invalidResponse: return "The OCR provider returned an unsupported response. Check the endpoint and API format."
         case .emptyQuestion: return "The question could not be read. Write ?? followed by your question on the same line, then try again."
         case .unreadableImage: return "The image could not be prepared for recognition."
+        case .localRecognitionFailed: return "On-device recognition failed. Your existing recognized text was kept."
         case .imageTooLarge: return "This OCR image is too large. Try recognizing a smaller area."
         case .responseTooLarge: return "The OCR provider returned too much data. Disable image output in your provider and try again."
         case .provider(401), .provider(403): return "The OCR provider rejected the access token. Check that the token matches the endpoint."

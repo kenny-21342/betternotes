@@ -185,6 +185,44 @@ final class DocumentSupportTests: XCTestCase {
         XCTAssertFalse(try NotebookFolders.move(notebookIDs: [notebook.stableID], to: folder.path, in: context))
     }
 
+    func testBatchMoveIntoArchivedAncestorRejectsEveryNotebook() throws {
+        let context = try context()
+        let parent = try NotebookFolders.create("Archived parent", in: context)
+        let child = try NotebookFolders.create("Child", in: context, parentPath: parent.path)
+        let first = Notebook(title: "First")
+        let second = Notebook(title: "Second")
+        context.insert(first)
+        context.insert(second)
+        parent.isArchived = true
+        try context.save()
+        XCTAssertThrowsError(try NotebookFolders.move(notebookIDs: [first.stableID, second.stableID],
+                                                      to: child.path, in: context))
+        XCTAssertEqual(first.folderName, "")
+        XCTAssertEqual(second.folderName, "")
+    }
+
+    func testRestoringParentDoesNotRestoreIndependentlyTrashedChildContents() throws {
+        let context = try context()
+        let parent = try NotebookFolders.create("Parent", in: context)
+        let child = try NotebookFolders.create("Child", in: context, parentPath: parent.path)
+        let first = Notebook(title: "Parent contents")
+        first.folderName = parent.path
+        let second = Notebook(title: "Child contents")
+        second.folderName = child.path
+        context.insert(first)
+        context.insert(second)
+        try context.save()
+        let childDate = Date(timeIntervalSince1970: 100)
+        try NotebookFolders.trash(child, in: context, now: childDate)
+        try NotebookFolders.trash(parent, in: context, now: Date(timeIntervalSince1970: 200))
+        try NotebookFolders.restore(parent, in: context)
+        XCTAssertNil(first.trashedAt)
+        XCTAssertEqual(child.trashedAt, childDate)
+        XCTAssertEqual(second.trashedAt, childDate)
+        try NotebookFolders.restore(child, in: context)
+        XCTAssertNil(second.trashedAt)
+    }
+
     func testLegacyNestedMembershipCreatesAllAncestorFolders() throws {
         let context = try context()
         let notebook = Notebook(title: "Imported backup")

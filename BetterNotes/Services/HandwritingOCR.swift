@@ -24,6 +24,21 @@ enum HandwritingOCR {
 
     private static let worker = Worker()
 
+    /// Like `recognizeText(from:pageSize:region:)`, but throws when Vision
+    /// fails, so a caller that stores the text can keep what it already has
+    /// instead of replacing it with an empty result.
+    static func recognizeTextOrThrow(from inkData: Data?, pageSize: CGSize, region: CGRect? = nil) async throws -> String {
+        let cancellation = RecognitionCancellation()
+        let lines = await withTaskCancellationHandler {
+            await worker.scan(inkData: inkData, pageSize: pageSize, region: region, detectingMarker: false, cancellation: cancellation)
+        } onCancel: {
+            cancellation.cancel()
+        }
+        try Task.checkCancellation()
+        if cancellation.visionFailed { throw OCRError.localRecognitionFailed }
+        return lines.map(\.text).joined(separator: "\n")
+    }
+
     static func scan(from inkData: Data?, pageSize: CGSize, region: CGRect? = nil, detectingMarker: Bool = false) async -> [Line] {
         let cancellation = RecognitionCancellation()
         return await withTaskCancellationHandler {
@@ -193,7 +208,10 @@ enum HandwritingOCR {
         request.preferBackgroundProcessing = false
         do {
             try VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:]).perform([request])
-        } catch { return [] }
+        } catch {
+            cancellation.markFailed()
+            return []
+        }
         guard !cancellation.isCancelled else { return [] }
         return recognizedLines(from: request.results ?? [])
     }
@@ -220,6 +238,22 @@ enum HandwritingOCR {
         func finish() {
             lock.lock()
             request = nil
+            lock.unlock()
+        }
+
+        /// Set when Vision itself threw, as opposed to finding no text. The
+        /// two look the same in the result (no lines) but must not be treated
+        /// the same: a blank page is an answer, a failure is not.
+        private var failed = false
+        var visionFailed: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return failed
+        }
+
+        func markFailed() {
+            lock.lock()
+            failed = true
             lock.unlock()
         }
 

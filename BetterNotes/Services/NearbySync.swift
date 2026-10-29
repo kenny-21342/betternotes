@@ -303,8 +303,11 @@ enum NearbyConflictPolicy: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     static let defaultsKey = "nearbySync.conflictPolicy"
 
-    static var stored: NearbyConflictPolicy {
-        UserDefaults.standard.string(forKey: defaultsKey).flatMap(NearbyConflictPolicy.init) ?? .keepBoth
+    static var stored: NearbyConflictPolicy { value(in: .standard) }
+
+    /// The saved choice in `defaults`, or Keep Both when none was saved.
+    static func value(in defaults: UserDefaults) -> NearbyConflictPolicy {
+        defaults.string(forKey: defaultsKey).flatMap(NearbyConflictPolicy.init) ?? .keepBoth
     }
 
     /// Whether this device's version or the incoming one wins, or nil to keep
@@ -523,6 +526,13 @@ final class NearbySyncCoordinator: NSObject, ObservableObject {
         transferURLs.removeAll()
         lastSentHashes.removeAll()
         acceptedIncoming.removeAll()
+    }
+
+    /// True while sync is running and `session` is the one this coordinator owns.
+    /// stop() clears `context`; delegate callbacks already queued on the main
+    /// actor use this to drop themselves instead of changing stopped state.
+    private func accepts(_ session: MCSession) -> Bool {
+        context != nil && session === self.session
     }
 
     func invite(_ peer: MCPeerID) {
@@ -956,7 +966,9 @@ extension NearbySyncCoordinator: MCNearbyServiceAdvertiserDelegate {
 extension NearbySyncCoordinator: MCSessionDelegate {
     nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            // Callbacks are queued, so one can arrive after stop() or from a
+            // session this coordinator no longer owns; it must not revive state.
+            guard let self, self.accepts(session) else { return }
             switch state {
             case .connected:
                 self.activePeer = peerID
@@ -1025,7 +1037,7 @@ extension NearbySyncCoordinator: MCSessionDelegate {
         // Multipeer Connectivity owns localURL only for the duration of this callback.
         let data = localURL.flatMap { try? Data(contentsOf: $0) }
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, self.accepts(session) else { return }
             if let error { self.fail("Transfer failed: \(error.localizedDescription)"); return }
             guard peerID == self.activePeer, resourceName == "betternotes-library.json", let data else {
                 self.fail("The received library was incomplete.")

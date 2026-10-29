@@ -55,11 +55,11 @@ The tester's first retry settled with “incomplete stream” using `gpt-6-astra
 - [ ] Draw with Apple Pencil, select and resize ink with the lasso, undo and redo, turn pages, record audio, import a PDF, import an image, terminate the app, and relaunch. Confirm the content remains editable.
 - [ ] Import an image with text near one edge. Check that the full frame remains visible and its OCR text appears in search.
 - [ ] Write a question ending in `??`. Check the recognized text in the prompt before tapping. Exercise correct and incorrect recognition, cancel a response, cause a provider failure, edit the question, and explicitly retry from the answer card. Confirm the note is unchanged until the user acts.
-- [ ] Exercise Ask Notes and Assistant with citations, an unavailable on-device model, and a provider error. Confirm failures and conversation save errors are visible.
+- [ ] Exercise the BYOK Ask Notes and Assistant flows with citations, cancellation, and a provider error. Confirm failures and conversation save errors are visible.
 - [ ] Export and re-import an editable backup, including audio and older rich text.
-- [ ] Check folder create, move, rename, and removal with real notebooks, then confirm populated folder paths on a paired Mac. Empty folders need a separate library-level sync and backup design if they must travel before containing notebooks.
+- [ ] Check folder create, move, rename, and removal with real notebooks, then confirm populated folder paths on a paired Mac. Confirm empty folders sync before they contain notebooks. Per-notebook backups do not include standalone empty folders.
 - [ ] Insert tape over handwriting, change its color, length, and height, then tap to reveal and cover it again. Check legibility, Pencil selection and resize, relaunch persistence, and PDF export in Dark Mode.
-- [ ] In single-page view, pull upward beyond the bottom of the final page. Check that the progress ring and Add Page text appear, a short pull does nothing, and releasing a full pull creates exactly one editable page. Confirm view-only mode cannot add a page this way.
+- [ ] In single-page view, pull left past the final page. In vertical scroll mode, pull upward past the bottom of the final page. In each mode, check that the progress ring and Add Page text appear, a short pull does nothing, and releasing a full pull creates exactly one editable page. Confirm view-only mode cannot add a page this way.
 - [ ] Create a ruled notebook with custom line thickness and opacity, then change an existing page's settings and make them the notebook default. Check the editor, thumbnails, new pages, PDF export, backup restore, and paired Mac appearance. Update both paired apps before the next nearby sync.
 
 ## Nearby sync validation

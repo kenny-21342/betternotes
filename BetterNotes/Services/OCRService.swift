@@ -80,7 +80,7 @@ final class OCRService: ObservableObject {
         let identity = settings.identity
         let text: String
         if settings.provider == .local {
-            text = await HandwritingOCR.recognizeText(from: data, pageSize: pageSize, region: region)
+            text = try await HandwritingOCR.recognizeTextOrThrow(from: data, pageSize: pageSize, region: region)
         } else {
             guard let configuration = settings.configuration else { throw OCRError.missingToken }
             let image = await HandwritingOCR.imageData(from: data, pageSize: pageSize, region: region)

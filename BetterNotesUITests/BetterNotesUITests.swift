@@ -953,6 +953,47 @@ final class BetterNotesUITests: XCTestCase {
         XCTAssertTrue(alert.waitForNonExistence(timeout: 4), "the prompt stayed after answering")
     }
 
+    func testVerticalRealRecordingShowsReachableStopAndSaves() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Requires the physical iPad microphone; synthetic playback is covered separately")
+        #else
+        defer { app.terminate() }
+        app.terminate()
+        app.launchArguments.append("-ui-testing-vertical-scroll")
+        app.launch()
+        openNotebook(named: uniqueTitle("Real Microphone Audit"))
+        app.buttons["Insert"].tap()
+        app.buttons["Recording"].firstMatch.tap()
+        let stop = app.buttons["Stop Recording"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 10), "Recording started without reachable Stop controls")
+        XCTAssertTrue(stop.isHittable)
+        XCTAssertTrue(app.buttons["Cancel Recording"].isHittable)
+        stop.tap()
+        XCTAssertTrue(stop.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Play"].firstMatch.waitForExistence(timeout: 5))
+        #endif
+    }
+
+    func testRealRecordingCancelThenImmediateRestartKeepsControls() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Requires physical microphone and previously granted permission")
+        #else
+        defer { app.terminate() }
+        openNotebook(named: uniqueTitle("Recording Restart Audit"))
+        app.buttons["Insert"].tap()
+        app.buttons["Recording"].firstMatch.tap()
+        let cancel = app.buttons["Cancel Recording"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10))
+        cancel.tap()
+        app.buttons["Insert"].tap()
+        app.buttons["Recording"].firstMatch.tap()
+        let stop = app.buttons["Stop Recording"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 10), "Old cancellation disrupted the replacement recording")
+        stop.tap()
+        XCTAssertTrue(stop.waitForNonExistence(timeout: 5))
+        #endif
+    }
+
     /// Reported on a real iPad: a finger on a recording's play button was read
     /// as a touch on blank page, so the button did nothing. A finger that
     /// reaches the canvas (rather than the SwiftUI button) must still play.

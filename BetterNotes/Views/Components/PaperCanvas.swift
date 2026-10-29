@@ -717,6 +717,9 @@ struct PaperCanvas: UIViewRepresentable {
             let count = canvasView.drawing.strokes.count
 
             if isApplyingProgrammaticDrawing {
+                // The baseline captured at the last touch-down is no longer the
+                // settled drawing.
+                awaitingResurrectionCheck = false
                 InkJournal.record("canvas.programmatic", strokes: count, "notified=\(!suppressesProgrammaticDrawingNotification)")
                 lastStrokeCount = count
                 if !suppressesProgrammaticDrawingNotification {
@@ -763,8 +766,15 @@ struct PaperCanvas: UIViewRepresentable {
             // instead stays keyed to "have we seen the first drawing-change
             // callback since this stroke began," independent of whether the
             // touch itself has already lifted.
+            //
+            // The check stays armed for every callback of the stroke, not just
+            // the first: a stale publication can follow an ordinary one (the
+            // first callback reports the genuine drawing, a later one the
+            // erased strokes again). A genuine stroke never raises the count
+            // by more than one, so keeping it armed cannot reject real ink. It
+            // is re-armed with a fresh baseline at the next touch-down and
+            // disarmed when the app replaces the drawing itself.
             if awaitingResurrectionCheck {
-                awaitingResurrectionCheck = false
                 let baselineCount = settledDrawingAtToolBegin.strokes.count
                 if count > baselineCount + 1, let newest = canvasView.drawing.strokes.last {
                     InkJournal.record("canvas.resurrection-trimmed", strokes: baselineCount + 1, "published=\(count) baseline=\(baselineCount)")

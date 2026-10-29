@@ -1,11 +1,38 @@
 import XCTest
 import SwiftData
+import MultipeerConnectivity
 @testable import BetterNotes
 
 /// Folders are identified by path, so the merge is a three-way comparison of
 /// path sets against the paths both devices had after the last exchange.
 @MainActor
 final class NearbyFolderSyncTests: XCTestCase {
+    func testStoppedCoordinatorIgnoresLateConnectedCallback() async throws {
+        let coordinator = NearbySyncCoordinator()
+        coordinator.stop()
+        let before = coordinator.status
+        let peer = MCPeerID(displayName: "Audit mock peer")
+        let session = MCSession(peer: MCPeerID(displayName: "Audit mock local"), securityIdentity: nil, encryptionPreference: .required)
+        coordinator.session(session, peer: peer, didChange: .connected)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(coordinator.status, before, "A queued connection callback revived stopped sync state")
+        coordinator.stop()
+    }
+
+    func testStoppedCoordinatorIgnoresLateResourceFailure() async throws {
+        let coordinator = NearbySyncCoordinator()
+        coordinator.stop()
+        let before = coordinator.status
+        let peer = MCPeerID(displayName: "Audit mock peer")
+        let session = MCSession(peer: MCPeerID(displayName: "Audit mock local"), securityIdentity: nil, encryptionPreference: .required)
+        coordinator.session(session, didFinishReceivingResourceWithName: "betternotes-library.json",
+                            fromPeer: peer, at: nil,
+                            withError: NSError(domain: "AuditMock", code: 1))
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(coordinator.status, before, "A stale transfer failure overwrote state after stop")
+        coordinator.stop()
+    }
+
     private func makeContext() throws -> ModelContext {
         let schema = Schema([Notebook.self, NotebookFolder.self, Page.self, PageElement.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)

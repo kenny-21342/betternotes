@@ -31,11 +31,20 @@ struct MacLibraryView: View {
     private var visibleNotebooks: [Notebook] {
         notebooks.filter { item in
             switch libraryFilter {
-            case .notes: return item.trashedAt == nil && !item.isArchived
-            case .archive: return item.trashedAt == nil && item.isArchived
+            case .notes: return item.trashedAt == nil && !item.isEffectivelyArchived
+            case .archive: return item.trashedAt == nil && item.isEffectivelyArchived
             case .trash: return item.trashedAt != nil
             }
         }
+    }
+
+    /// Kept out of `body`, which is already near the type-checker's limit.
+    private var openNotebookRegistration: some View {
+        Color.clear
+            .onChange(of: selectedNotebookID, initial: true) { _, id in
+                nearbySync.openNotebookIDs = id.map { [$0] } ?? []
+            }
+            .onDisappear { nearbySync.openNotebookIDs = [] }
     }
 
     private var notebook: Notebook? {
@@ -120,6 +129,10 @@ struct MacLibraryView: View {
         } message: {
             Text("This removes the notebook and all of its pages from this library.")
         }
+        // The selected notebook is the one open in the editor. An incoming sync
+        // replacement would delete and recreate the models behind it, so it waits
+        // until another notebook is selected (see NearbySyncCoordinator.openNotebookIDs).
+        .background { openNotebookRegistration }
         .onChange(of: selectedNotebookID) { _, _ in
             if !pages.contains(where: { $0.stableID == selectedPageID }) {
                 selectedPageID = pages.first?.stableID

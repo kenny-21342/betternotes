@@ -145,6 +145,11 @@ struct PageEditorView: View {
     /// False when a caller (vertical scroll mode) zooms the whole document as
     /// one unit instead of letting each page run its own pinch-to-zoom.
     var managesOwnZoom = true
+    /// Where a recording's Stop and Cancel controls are shown when the page is
+    /// one of many inside a larger scrolling view. A page's own bottom edge is
+    /// usually out of sight there, so the notebook shows the controls in its
+    /// viewport instead. Nil in single-page mode, where the page draws them.
+    var recordingHUD: RecordingHUDModel?
     var externalVisiblePageCenter: CGPoint?
     var onPageInteraction: () -> Void = {}
     var onPanRequirementChange: (Bool) -> Void = { _ in }
@@ -304,7 +309,7 @@ struct PageEditorView: View {
                     }
                 )
 
-                if audio.isRecording {
+                if audio.isRecording, recordingHUD == nil {
                     VStack {
                         Spacer()
                         HStack {
@@ -377,6 +382,8 @@ struct PageEditorView: View {
 
     private var editorInteractions: some View {
         editorSurface
+        .onChange(of: audio.isRecording) { _, recording in syncRecordingHUD(active: recording) }
+        .onChange(of: audio.elapsed) { _, elapsed in recordingHUD?.elapsed = elapsed }
         .overlay(alignment: .bottom) {
             if selectionState.isEmpty, let selectedElement, !isReadOnly {
                 SelectedElementControls(
@@ -2822,7 +2829,16 @@ struct PageEditorView: View {
         }
     }
 
+    private func syncRecordingHUD(active: Bool) {
+        guard let hud = recordingHUD else { return }
+        hud.onStop = { finishRecording(save: true) }
+        hud.onCancel = { finishRecording(save: false) }
+        hud.elapsed = audio.elapsed
+        hud.isActive = active
+    }
+
     private func finishRecording(save: Bool) {
+        recordingHUD?.isActive = false
         // Guard on recordingElement (not audio.isRecording) because the
         // element is now created synchronously and audio.startRecording()
         // may still be awaiting permission when the user taps Stop.
@@ -2995,7 +3011,29 @@ struct PageEditorView: View {
 /// A compact, non-blocking recording bar pinned to the bottom of the screen.
 /// Unlike a full-screen popup, this lets the user continue writing while
 /// recording. Shows elapsed time, a pulsing indicator, and Stop/Cancel buttons.
-private struct RecordingBar: View {
+/// Shared by the notebook (which draws the controls) and the page that owns the
+/// recording (which updates it).
+@MainActor
+final class RecordingHUDModel: ObservableObject {
+    @Published var isActive = false
+    @Published var elapsed: TimeInterval = 0
+    var onStop: () -> Void = {}
+    var onCancel: () -> Void = {}
+}
+
+/// The recording controls, drawn in a notebook's viewport.
+struct RecordingHUDView: View {
+    @ObservedObject var model: RecordingHUDModel
+
+    var body: some View {
+        if model.isActive {
+            RecordingBar(elapsed: model.elapsed, onStop: model.onStop, onCancel: model.onCancel)
+                .zIndex(50)
+        }
+    }
+}
+
+struct RecordingBar: View {
     let elapsed: TimeInterval
     var onStop: () -> Void
     var onCancel: () -> Void

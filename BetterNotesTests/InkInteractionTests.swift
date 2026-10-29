@@ -187,4 +187,49 @@ final class InkInteractionTests: XCTestCase {
         }
         return PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: .now))
     }
+
+    func testLargeEraseThenDrawRejectsResurrectionOnFirstCallback() throws {
+        try checkLargeEraseResurrection(afterInitialCallback: false)
+    }
+
+    func testLargeEraseThenDrawRejectsResurrectionOnLateCallback() throws {
+        try checkLargeEraseResurrection(afterInitialCallback: true)
+    }
+
+    private func checkLargeEraseResurrection(afterInitialCallback: Bool) throws {
+        var old: [PKStroke] = []
+        for index in 0..<500 {
+            let x = CGFloat(20 + (index % 20) * 20)
+            let y = CGFloat(20 + (index / 20) * 20)
+            old.append(stroke([CGPoint(x: x, y: y), CGPoint(x: x + 10, y: y + 10)]))
+        }
+        let retained = Array(old.prefix(5))
+        let newest = stroke([CGPoint(x: 550, y: 550), CGPoint(x: 650, y: 580)])
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: old)
+        let parent = PaperCanvas(canvasView: .constant(canvas), tool: .pen, color: .black, lineWidth: 3,
+                                 generatedShapeStyle: GeneratedShapeStyle(inkType: .pen, color: .black, opacity: 1, width: 3),
+                                 eraserWidth: 20, eraserStyle: .vector, lassoMode: .rectangle,
+                                 isReadOnly: false, allowsFingerDrawing: true, elementInteractionRects: [],
+                                 inkData: nil, canvasInkOpacity: 1, scribbleToErase: false)
+        let coordinator = PaperCanvas.Coordinator(parent: parent)
+        coordinator.canvas = canvas
+        coordinator.attachDrawingGesture(to: canvas)
+        defer { coordinator.cancelShapeRecognition() }
+        let observer = try XCTUnwrap(canvas.gestureRecognizers?.compactMap { $0 as? PencilStrokeObserverGestureRecognizer }.first)
+        // Simulate a committed bulk erase before the next real tool lifecycle.
+        canvas.drawing = PKDrawing(strokes: retained)
+        observer.onBegan?(CGPoint(x: 550, y: 550), .direct)
+        observer.onMoved?(CGPoint(x: 650, y: 580))
+        if afterInitialCallback {
+            canvas.drawing = PKDrawing(strokes: retained + [newest])
+            coordinator.canvasViewDrawingDidChange(canvas)
+        }
+        // Inject the stale PencilKit publication; no invented UIKit touches.
+        canvas.drawing = PKDrawing(strokes: old + [newest])
+        coordinator.canvasViewDrawingDidChange(canvas)
+        XCTAssertEqual(canvas.drawing.strokes.count, 6,
+                       "A stale publication restored 495 erased strokes after a new stroke began")
+        XCTAssertEqual(canvas.drawing.strokes.last?.path[0].location, newest.path[0].location)
+    }
 }
