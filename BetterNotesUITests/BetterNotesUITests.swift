@@ -1133,6 +1133,61 @@ final class BetterNotesUITests: XCTestCase {
         XCTAssertTrue(bar.descendants(matching: .button)["Duplicate"].firstMatch.isHittable)
     }
 
+    /// Duplicate, Copy/Paste and Delete in the selection menu must act on the
+    /// ink, not just dismiss the selection. Each effect is proved by lassoing
+    /// the same area again and seeing whether anything is left to select.
+    func testSelectionMenuDuplicateCopyPasteAndDeleteChangeTheInk() {
+        openNotebook(named: uniqueTitle("Selection Actions"))
+
+        app.buttons["Pen"].tap()
+        drawStroke(from: CGVector(dx: 0.30, dy: 0.26), to: CGVector(dx: 0.64, dy: 0.30))
+        drawStroke(from: CGVector(dx: 0.30, dy: 0.36), to: CGVector(dx: 0.64, dy: 0.40))
+
+        let canvas = app.scrollViews["page-canvas"]
+        let bar = app.descendants(matching: .any)["selection-context-bar"]
+        func lassoAll() {
+            app.buttons["Lasso"].tap()
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.18))
+                .press(
+                    forDuration: 0.2,
+                    thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.76, dy: 0.50)),
+                    withVelocity: .slow,
+                    thenHoldForDuration: 0.2
+                )
+        }
+        func tapBar(_ name: String) {
+            let button = bar.descendants(matching: .button)[name].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 3), "\(name) is missing from the selection menu")
+            button.tap()
+        }
+
+        lassoAll()
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "the lasso did not select the hand-drawn strokes")
+
+        // Duplicate selects the copy; deleting that copy must leave the originals.
+        tapBar("Duplicate")
+        XCTAssertTrue(bar.waitForExistence(timeout: 3), "Duplicate dropped the selection")
+        tapBar("Delete")
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 3), "Delete left the menu on screen")
+        lassoAll()
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "Duplicate/Delete removed the original ink")
+
+        // Copy then Paste adds a selected copy; deleting it again leaves the originals.
+        tapBar("Copy")
+        tapBar("Paste")
+        XCTAssertTrue(bar.waitForExistence(timeout: 3), "Paste did not select the pasted ink")
+        tapBar("Delete")
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 3))
+        lassoAll()
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "Copy/Paste/Delete removed the original ink")
+
+        // Finally delete the originals; nothing remains to select.
+        tapBar("Delete")
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 3))
+        lassoAll()
+        XCTAssertFalse(bar.waitForExistence(timeout: 3), "Delete did not remove the ink")
+    }
+
     /// Single-page mode adds a page by pulling it aside; the continuous
     /// vertical notebook does the same by pulling up past its last page.
     func testPullingPastTheLastPageInVerticalScrollAddsAPage() {
