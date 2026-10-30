@@ -663,6 +663,7 @@ struct PageEditorView: View {
                 isReadOnly: isReadOnly,
                 allowsFingerDrawing: allowsFingerDrawing,
                 elementInteractionRects: elementInteractionRects,
+                controlInteractionRects: selectionMenuInteractionRects,
                 canBeginFingerElementDrag: { point in
                     fingerControl(at: point) != nil
                 },
@@ -2357,6 +2358,18 @@ struct PageEditorView: View {
         .zIndex(61)
     }
 
+    /// Where the selection menu is on the page, so the canvas leaves touches
+    /// there to its buttons. Empty while the menu is not shown.
+    private var selectionMenuInteractionRects: [CGRect] {
+        guard !isReadOnly, !selectionState.isEmpty, !selectionState.bounds.isNull, !selectionMenuHidden else { return [] }
+        let width = SelectionContextBar.width(canCustomizeTape: customizableSelectedTape != nil)
+        let scale = min(max(1 / max(zoomScale, 0.01), 0.2), 2)
+        let center = selectionMenuCenter(width: width)
+        let size = CGSize(width: width * scale, height: SelectionContextBar.height * scale)
+        return [CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2,
+                       width: size.width, height: size.height).insetBy(dx: -6, dy: -6)]
+    }
+
     private func selectionMenuCenter(width: CGFloat) -> CGPoint {
         let bounds = selectionState.bounds
         let size = page.pageOrientation.size
@@ -2515,6 +2528,7 @@ struct PageEditorView: View {
     }
 
     private func copySelection() {
+        InkJournal.record("selection.copy", strokes: currentDrawing.strokes.count, "selected=\(selectionState.strokeIndices.count)")
         guard let payload = makeSelectionPayload(), let data = try? JSONEncoder().encode(payload) else { return }
         cachedSelectionPayload = payload
         UIPasteboard(name: Self.selectionPasteboardName, create: true)?
@@ -2529,6 +2543,7 @@ struct PageEditorView: View {
     }
 
     private func pasteSelection() {
+        InkJournal.record("selection.paste", strokes: currentDrawing.strokes.count, "selected=\(selectionState.strokeIndices.count)")
         guard !isReadOnly, let payload = clipboardPayload(), !payload.isEmpty else { return }
         recordBeforeMutation()
         let pageSize = page.pageOrientation.size
@@ -2600,6 +2615,7 @@ struct PageEditorView: View {
     }
 
     private func duplicateSelection() {
+        InkJournal.record("selection.duplicate", strokes: currentDrawing.strokes.count, "selected=\(selectionState.strokeIndices.count)")
         guard !selectionState.isEmpty else { return }
         copySelection()
         pasteSelection()
@@ -2839,6 +2855,7 @@ struct PageEditorView: View {
 
     private func finishRecording(save: Bool) {
         recordingHUD?.isActive = false
+        InkJournal.record("recording.finish", "save=\(save) hasElement=\(recordingElement != nil)")
         // Guard on recordingElement (not audio.isRecording) because the
         // element is now created synchronously and audio.startRecording()
         // may still be awaiting permission when the user taps Stop.

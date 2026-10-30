@@ -7,6 +7,11 @@ import QuartzCore
 final class PencilInputCanvasView: PKCanvasView {
     private let memoryActivity = MemoryDiagnostics.begin("canvas")
     var elementInteractionRects: [CGRect] = []
+    /// Controls drawn above the canvas (the selection menu). A touch inside
+    /// one belongs to the control whatever its type: unlike an element beneath
+    /// the canvas, a control has nothing to gain from PencilKit seeing it, and
+    /// a touch with no reported type would otherwise draw or clear a selection.
+    var controlInteractionRects: [CGRect] = []
     var fingerDrawingAllowed = false
 
     func pagePoint(from point: CGPoint) -> CGPoint {
@@ -29,6 +34,8 @@ final class PencilInputCanvasView: PKCanvasView {
         guard event?.type == .touches else {
             return super.hitTest(point, with: event)
         }
+        let controlPoint = pagePoint(from: point)
+        if controlInteractionRects.contains(where: { $0.contains(controlPoint) }) { return nil }
 
         // Apple Pencil always belongs to PencilKit, including over images.
         // Only a *known finger* passes through to an element. During some
@@ -44,6 +51,14 @@ final class PencilInputCanvasView: PKCanvasView {
             && ProcessInfo.processInfo.arguments.contains("-ui-testing")
         let isFingerTouch = !forceCanvasFinger
             && (simulatedFinger || (!touches.isEmpty && touches.allSatisfy { $0.type == .direct }))
+        #if DEBUG
+        // Which kinds of touch reach the canvas, and where, so a tap that
+        // seems to have missed a control can be matched to what happened.
+        if touches.isEmpty || touches.contains(where: { $0.phase == .began }) {
+            let kinds = touches.map { String($0.type.rawValue) }.joined(separator: ",")
+            InkJournal.record("hit.canvas", "touchTypes=[\(kinds)] point=\(Int(point.x)),\(Int(point.y)) finger=\(isFingerTouch)")
+        }
+        #endif
         if isFingerTouch {
             // `point` is in canvas-local viewport coordinates; element rects
             // are page coordinates, so convert before comparing.
@@ -424,6 +439,7 @@ struct PaperCanvas: UIViewRepresentable {
     let isReadOnly: Bool
     let allowsFingerDrawing: Bool
     let elementInteractionRects: [CGRect]
+    var controlInteractionRects: [CGRect] = []
     var canBeginFingerElementDrag: (CGPoint) -> Bool = { _ in false }
     var onFingerElementDrag: (FingerElementDragEvent) -> Void = { _ in }
     /// A short Apple Pencil tap that lands on a tappable element (tape) acts
@@ -457,6 +473,7 @@ struct PaperCanvas: UIViewRepresentable {
         c.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
         if let interactiveCanvas = c as? PencilInputCanvasView {
             interactiveCanvas.elementInteractionRects = elementInteractionRects
+            interactiveCanvas.controlInteractionRects = controlInteractionRects
             interactiveCanvas.fingerDrawingAllowed = allowsFingerDrawing
         }
         c.backgroundColor = .clear
@@ -512,6 +529,7 @@ struct PaperCanvas: UIViewRepresentable {
         uiView.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
         if let interactiveCanvas = uiView as? PencilInputCanvasView {
             interactiveCanvas.elementInteractionRects = elementInteractionRects
+            interactiveCanvas.controlInteractionRects = controlInteractionRects
             interactiveCanvas.fingerDrawingAllowed = allowsFingerDrawing
         }
         uiView.isUserInteractionEnabled = context.coordinator.canvasAcceptsInput
