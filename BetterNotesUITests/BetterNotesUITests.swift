@@ -1133,6 +1133,39 @@ final class BetterNotesUITests: XCTestCase {
         XCTAssertTrue(bar.descendants(matching: .button)["Duplicate"].firstMatch.isHittable)
     }
 
+    /// The library can switch to compact rows, remembers the choice, and Select
+    /// acts on several notebooks at once.
+    func testLibraryListLayoutAndBulkSelectTrash() {
+        let first = uniqueTitle("Bulk A")
+        let second = uniqueTitle("Bulk B")
+        createNotebook(named: first)
+        createNotebook(named: second)
+        let firstItem = app.buttons[first].firstMatch
+        XCTAssertTrue(firstItem.waitForExistence(timeout: 8))
+        let gridHeight = firstItem.frame.height
+
+        app.buttons["library-sort-view"].tap()
+        app.buttons["List"].tap()
+        XCTAssertTrue(firstItem.waitForExistence(timeout: 5))
+        XCTAssertLessThan(firstItem.frame.height, min(gridHeight, 120), "list rows should be much shorter than grid covers")
+
+        app.terminate()
+        app.launch()
+        let afterRelaunch = app.buttons[first].firstMatch
+        XCTAssertTrue(afterRelaunch.waitForExistence(timeout: 8))
+        XCTAssertLessThan(afterRelaunch.frame.height, 120, "the list layout was not remembered")
+
+        app.buttons["library-select"].tap()
+        app.buttons[first].firstMatch.tap()
+        app.buttons[second].firstMatch.tap()
+        app.buttons["library-bulk-trash"].tap()
+        let confirm = app.buttons["Move to Trash"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 4))
+        confirm.tap()
+        XCTAssertTrue(app.buttons[first].firstMatch.waitForNonExistence(timeout: 5), "bulk trash left the first notebook")
+        XCTAssertTrue(app.buttons[second].firstMatch.waitForNonExistence(timeout: 5), "bulk trash left the second notebook")
+    }
+
     /// Duplicate, Copy/Paste and Delete in the selection menu must act on the
     /// ink, not just dismiss the selection. Each effect is proved by lassoing
     /// the same area again and seeing whether anything is left to select.

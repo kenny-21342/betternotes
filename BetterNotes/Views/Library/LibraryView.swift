@@ -225,11 +225,16 @@ struct LibraryView: View {
     @State private var indexingTotal = 0
     @State private var indexingCompleted = 0
     @AppStorage(AppPreferenceKey.librarySort) private var librarySort = LibrarySort.modified.rawValue
+    @AppStorage(AppPreferenceKey.libraryLayout) private var libraryLayoutRaw = LibraryLayout.grid.rawValue
+    @State private var isSelecting = false
+    @State private var selectedNotebookIDs: Set<UUID> = []
+    @State private var movingSelection = false
+    @State private var confirmingBulkTrash = false
     @AppStorage(AppPreferenceKey.libraryFolderPaths) private var storedFolderPaths = "[]"
     @AppStorage(AppPreferenceKey.searchAnswersEnabled) private var searchAnswersEnabled = true
 
     private let columns = [
-        GridItem(.adaptive(minimum: 200), spacing: 24, alignment: .top)
+        GridItem(.adaptive(minimum: 150), spacing: 20, alignment: .top)
     ]
 
     private var sectionNotebooks: [Notebook] {
@@ -417,55 +422,169 @@ struct LibraryView: View {
             } else {
                 ScrollView {
                     tagFilterBar
-                    LazyVGrid(columns: columns, spacing: 28) {
-                        ForEach(visibleFolders) { folder in
-                            folderTile(folder)
+                    if !visibleFolders.isEmpty {
+                        LazyVGrid(columns: folderColumns, spacing: 12) {
+                            ForEach(visibleFolders) { folder in folderTile(folder) }
                         }
-                        ForEach(sectionNotebooks) { notebook in
-                            VStack(spacing: 0) {
-                                NavigationLink(value: NotebookDestination(notebookID: notebook.stableID)) {
-                                    NotebookCover(notebook: notebook)
-                                }
-                                .buttonStyle(NotebookLiftButtonStyle())
-                                .disabled(librarySection == .trash)
-                                .draggable(NotebookDragPayload(notebookID: notebook.stableID)) {
-                                    NotebookCover(notebook: notebook)
-                                        .frame(width: 200)
-                                        .rotationEffect(.degrees(-2))
-                                        .shadow(color: .black.opacity(0.2), radius: 16, y: 10)
-                                }
-                                .accessibilityIdentifier("library-notebook-\(notebook.stableID)")
-
-                                if librarySection == .trash, let trashedAt = notebook.trashedAt {
-                                    Text(TrashRetention.deletedLabel(trashedAt))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                    Text("Removed in \(TrashRetention.daysRemaining(trashedAt)) days")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-
-                                Menu {
-                                    notebookActions(for: notebook)
-                                } label: {
-                                    Image(systemName: "ellipsis.circle")
-                                        .font(.title3)
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 44, height: 44)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("More actions for \(notebook.title)")
-                            }
-                            .transition(.scale(scale: 0.7).combined(with: .opacity))
-                        }
+                        .padding(.horizontal, 28)
+                        .padding(.top, 20)
                     }
-                    .padding(28)
+                    if libraryLayout == .list {
+                        LazyVStack(spacing: 8) {
+                            ForEach(sectionNotebooks) { notebook in notebookRow(notebook) }
+                        }
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 20)
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 24) {
+                            ForEach(sectionNotebooks) { notebook in notebookCell(notebook) }
+                        }
+                        .padding(28)
+                    }
                 }
             }
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: sectionNotebooks.map(\.stableID))
         .animation(.easeInOut(duration: 0.2), value: selectedFolder)
+    }
+
+    private var libraryLayout: LibraryLayout { LibraryLayout(rawValue: libraryLayoutRaw) ?? .grid }
+    private let folderColumns = [GridItem(.adaptive(minimum: 190), spacing: 12, alignment: .top)]
+    private var canSelect: Bool { librarySection == .notes || librarySection == .favorites || librarySection == .archive }
+
+    private func toggleSelection(_ notebook: Notebook) {
+        if selectedNotebookIDs.contains(notebook.stableID) { selectedNotebookIDs.remove(notebook.stableID) }
+        else { selectedNotebookIDs.insert(notebook.stableID) }
+    }
+
+    private func endSelecting() {
+        isSelecting = false
+        selectedNotebookIDs = []
+    }
+
+    private func notebookCell(_ notebook: Notebook) -> some View {
+        VStack(spacing: 0) {
+            if isSelecting {
+                Button { toggleSelection(notebook) } label: {
+                    NotebookCover(notebook: notebook)
+                        .overlay(alignment: .topTrailing) {
+                            LibrarySelectionBadge(isSelected: selectedNotebookIDs.contains(notebook.stableID)).padding(8)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selectedNotebookIDs.contains(notebook.stableID) ? .isSelected : [])
+                .accessibilityIdentifier("library-notebook-\(notebook.stableID)")
+            } else {
+                NavigationLink(value: NotebookDestination(notebookID: notebook.stableID)) {
+                    NotebookCover(notebook: notebook)
+                }
+                .buttonStyle(NotebookLiftButtonStyle())
+                .disabled(librarySection == .trash)
+                .draggable(NotebookDragPayload(notebookID: notebook.stableID)) {
+                    NotebookCover(notebook: notebook)
+                        .frame(width: 200)
+                        .rotationEffect(.degrees(-2))
+                        .shadow(color: .black.opacity(0.2), radius: 16, y: 10)
+                }
+                .accessibilityIdentifier("library-notebook-\(notebook.stableID)")
+            }
+
+            if librarySection == .trash, let trashedAt = notebook.trashedAt {
+                Text(TrashRetention.deletedLabel(trashedAt))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text("Removed in \(TrashRetention.daysRemaining(trashedAt)) days")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            if !isSelecting {
+                Menu {
+                    notebookActions(for: notebook)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More actions for \(notebook.title)")
+            }
+        }
+        .transition(.scale(scale: 0.7).combined(with: .opacity))
+    }
+
+    private func notebookRow(_ notebook: Notebook) -> some View {
+        let selected = selectedNotebookIDs.contains(notebook.stableID)
+        return HStack(spacing: 4) {
+            if isSelecting {
+                Button { toggleSelection(notebook) } label: {
+                    NotebookListRow(notebook: notebook, isSelecting: true, isSelected: selected)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("library-notebook-\(notebook.stableID)")
+            } else {
+                NavigationLink(value: NotebookDestination(notebookID: notebook.stableID)) {
+                    NotebookListRow(notebook: notebook)
+                }
+                .buttonStyle(.plain)
+                .disabled(librarySection == .trash)
+                .draggable(NotebookDragPayload(notebookID: notebook.stableID))
+                .accessibilityIdentifier("library-notebook-\(notebook.stableID)")
+                Menu {
+                    notebookActions(for: notebook)
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More actions for \(notebook.title)")
+            }
+        }
+    }
+
+    private func bulkFavorite() {
+        let chosen = notebooks.filter { selectedNotebookIDs.contains($0.stableID) }
+        let makeFavorite = chosen.contains { !$0.isFavorite }
+        for notebook in chosen { notebook.isFavorite = makeFavorite; notebook.modifiedAt = .now }
+        _ = saveChanges()
+        endSelecting()
+    }
+
+    private func bulkArchive() {
+        let chosen = notebooks.filter { selectedNotebookIDs.contains($0.stableID) }
+        let archiving = chosen.contains { !$0.isEffectivelyArchived }
+        for notebook in chosen where notebook.isEffectivelyArchived != archiving { toggleArchive(notebook) }
+        endSelecting()
+    }
+
+    private func bulkTrash() {
+        for notebook in notebooks where selectedNotebookIDs.contains(notebook.stableID) {
+            notebook.trashedAt = .now
+            notebook.modifiedAt = .now
+        }
+        _ = saveChanges()
+        endSelecting()
+    }
+
+    @ToolbarContentBuilder
+    private var selectionToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .bottomBar) {
+            if isSelecting {
+                Button("Move", systemImage: "folder") { movingSelection = true }
+                    .accessibilityIdentifier("library-bulk-move")
+                Spacer()
+                Button("Favorite", systemImage: "star") { bulkFavorite() }
+                    .accessibilityIdentifier("library-bulk-favorite")
+                Spacer()
+                Button(librarySection == .archive ? "Unarchive" : "Archive", systemImage: "archivebox") { bulkArchive() }
+                    .accessibilityIdentifier("library-bulk-archive")
+                Spacer()
+                Button("Trash", systemImage: "trash", role: .destructive) { confirmingBulkTrash = true }
+                    .accessibilityIdentifier("library-bulk-trash")
+            }
+        }
     }
 
     private func folderTile(_ folder: NotebookFolder) -> some View {
@@ -475,6 +594,7 @@ struct LibraryView: View {
                               folderCount: folders.filter { $0.parentPath == folder.path && (folder.trashedAt != nil || !NotebookFolders.isTrashed($0.path, in: folders)) }.count,
                               colorHex: folder.colorHex, isFavorite: folder.isFavorite,
                               acceptsDrops: NotebookFolders.isAvailable(folder.path, in: folders),
+                              compact: true,
                               onOpen: { openFolder(folder.path) }, onMove: moveNotebooks)
                 .disabled(folder.trashedAt != nil)
             if let date = folder.trashedAt {
@@ -610,6 +730,8 @@ struct LibraryView: View {
             }
         }
         .toolbar {
+            // An empty item is drawn as a blank glass circle on regular-width iPads.
+            if selectedFolder != nil || horizontalSizeClass == .compact {
             ToolbarItem(placement: .topBarLeading) {
                 HStack(spacing: 4) {
                 if let selectedFolder {
@@ -657,8 +779,46 @@ struct LibraryView: View {
                 }
                 }
             }
+            }
+            selectionToolbar
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 4) {
+                    if canSelect {
+                        Button(isSelecting ? "Done" : "Select") {
+                            if isSelecting { endSelecting() } else { isSelecting = true }
+                        }
+                        .accessibilityIdentifier("library-select")
+                    }
+                    Menu {
+                        Section(AppLocalization.text("Sort")) {
+                            ForEach(LibrarySort.allCases, id: \.self) { sort in
+                                Button {
+                                    librarySort = sort.rawValue
+                                } label: {
+                                    Label(sort.label, systemImage: librarySort == sort.rawValue ? "checkmark" : sort.icon)
+                                }
+                            }
+                        }
+                        Section(AppLocalization.text("View")) {
+                            ForEach(LibraryLayout.allCases, id: \.self) { layout in
+                                Button {
+                                    libraryLayoutRaw = layout.rawValue
+                                } label: {
+                                    Label(layout.label, systemImage: libraryLayout == layout ? "checkmark" : layout.icon)
+                                }
+                                .accessibilityIdentifier("library-layout-\(layout.rawValue)")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: libraryLayout.icon)
+                            .font(.title3)
+                            .frame(width: 44, height: 44)
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("Sort and View")
+                    .accessibilityIdentifier("library-sort-view")
+
                     Button {
                         newFolderName = ""
                         showingNewFolder = true
@@ -768,6 +928,13 @@ struct LibraryView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This permanently removes every folder and notebook in the trash, including folder contents, and cannot be undone.")
+        }
+        .sheet(isPresented: $movingSelection) {
+            MoveNotebooksSheet(notebookIDs: Array(selectedNotebookIDs), existingFolders: allFolders, onMoved: endSelecting)
+        }
+        .confirmationDialog("Move \(selectedNotebookIDs.count) notebooks to Trash?", isPresented: $confirmingBulkTrash, titleVisibility: .visible) {
+            Button("Move to Trash", role: .destructive) { bulkTrash() }
+            Button("Cancel", role: .cancel) {}
         }
         .sheet(item: $movingToFolderNotebook) { notebook in
             MoveToFolderSheet(notebook: notebook, existingFolders: allFolders)
@@ -1038,16 +1205,6 @@ struct LibraryView: View {
                         .modifier(NotebookFolderDropTarget(path: folder, onMove: moveNotebooks))
                     }
                 }
-            }
-
-            Section(AppLocalization.text("Sort")) {
-                Picker("Notebook sort", selection: $librarySort) {
-                    ForEach(LibrarySort.allCases, id: \.self) { sort in
-                        Label(sort.label, systemImage: sort.icon).tag(sort.rawValue)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
             }
         }
         .listStyle(.sidebar)
@@ -2504,7 +2661,8 @@ struct BetterNotesSettingsSheet: View {
         }
         .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showingAIProviderSettings) {
-            AIProviderSettingsSheet(service: ai)
+            // The form's Save and Cancel live in a navigation bar, which a bare sheet does not have.
+            NavigationStack { AIProviderSettingsSheet(service: ai) }
         }
         .sheet(isPresented: $showingNearbySync) { NearbySyncSheet() }
     }

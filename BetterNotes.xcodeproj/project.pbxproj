@@ -71,6 +71,7 @@
 		9101882E5ACD564449073E3B /* OCRClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2255D911B9B1E85F0096184A /* OCRClient.swift */; };
 		915AD0B7ECD03036F3A7E998 /* AIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475067FD8E90D5DE0BA1B3EB /* AIClient.swift */; };
 		9A86E3F32894A2B03CD6CBE1 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EC66D96F3B03B69777188A /* AppLocalization.swift */; };
+		9AA815FBF0399DC86CF2C37E /* LibraryLayoutComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593920226910E074DE35C8D4 /* LibraryLayoutComponents.swift */; };
 		9FEF6687A545E37956B9710B /* OCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1B34CE4CB6B05DBE081DB0 /* OCRService.swift */; };
 		A24A2A4E870DB73B07BD3874 /* HandwritingOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B66873371464A347F0B858A /* HandwritingOCR.swift */; };
 		A666714ACE2CBAA6EE510FCD /* MacPageSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4B5D6AD6D5CD94146B28D95 /* MacPageSnapshot.swift */; };
@@ -175,6 +176,7 @@
 		54F20F5BD67D3EF53E0BCB1F /* AssistantView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantView.swift; sourceTree = "<group>"; };
 		563646E5ED1AC7851262D660 /* legacy-v1.store */ = {isa = PBXFileReference; path = "legacy-v1.store"; sourceTree = "<group>"; };
 		56368ED9EA30DB68183F25B5 /* CoverCustomizationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverCustomizationSheet.swift; sourceTree = "<group>"; };
+		593920226910E074DE35C8D4 /* LibraryLayoutComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryLayoutComponents.swift; sourceTree = "<group>"; };
 		5A030ECA598B25CCEDA0D514 /* BetterNotesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetterNotesTests.swift; sourceTree = "<group>"; };
 		5BFACD6D79CA398BF1B06FC7 /* PageBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageBackground.swift; sourceTree = "<group>"; };
 		5D58001999285418656D51F4 /* AssistantCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -457,6 +459,7 @@
 			children = (
 				56368ED9EA30DB68183F25B5 /* CoverCustomizationSheet.swift */,
 				4C4D385C6509D1319EE1BE4F /* FolderBrowserComponents.swift */,
+				593920226910E074DE35C8D4 /* LibraryLayoutComponents.swift */,
 				C830D7073F7B9C3BFCCA1BDB /* LibraryView.swift */,
 				A48C7A01F7D06D1931F26481 /* NotebookCover.swift */,
 			);
@@ -745,6 +748,7 @@
 				B2E522FE93859251216630F9 /* InkJournal.swift in Sources */,
 				F00395C19CD56F8B2C1447A5 /* InkQuestion.swift in Sources */,
 				7771CC7CA1BEFDEC9AB28378 /* InterruptedAnswerRecovery.swift in Sources */,
+				9AA815FBF0399DC86CF2C37E /* LibraryLayoutComponents.swift in Sources */,
 				B156E028502D4CC2E2BB4A87 /* LibraryView.swift in Sources */,
 				0F841C4FE53B600AC37A1525 /* MemoryDiagnostics.swift in Sources */,
 				EAC892A98516721719E3B80D /* NearbySync.swift in Sources */,

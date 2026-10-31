@@ -5,6 +5,7 @@ enum AppPreferenceKey {
     static let language = "app.language"
     static let allowsFingerDrawing = "drawing.allowsFingerDrawing"
     static let librarySort = "library.sort"
+    static let libraryLayout = "library.layout"
     static let libraryFolderPaths = "library.folderPaths"
     static let scribbleToErase = "drawing.scribbleToErase"
     static let recentColors = "drawing.recentColors"
