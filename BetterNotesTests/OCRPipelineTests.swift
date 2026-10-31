@@ -129,6 +129,106 @@ final class OCRPipelineTests: XCTestCase {
         XCTAssertEqual(MockAIURLProtocol.recordedRequests().count, 1)
     }
 
+    private func jobsClient(pollInterval: Duration = .milliseconds(1), jobTimeout: Duration = .seconds(5)) -> OCRClient {
+        let session = URLSessionConfiguration.ephemeral
+        session.protocolClasses = [MockAIURLProtocol.self]
+        return OCRClient(session: URLSession(configuration: session), pollInterval: pollInterval, jobTimeout: jobTimeout)
+    }
+
+    private var jobsConfig: OCRConfiguration {
+        OCRConfiguration(endpoint: URL(string: "https://example.com/api/v2/ocr/jobs")!, token: "job-token",
+                         format: .paddleJobs, model: "PaddleOCR-VL-1.6", identity: "test")
+    }
+
+    func testPaddleJobSubmitsPollsAndDownloadsWithoutLeakingTheToken() async throws {
+        let result = #"{"result":{"layoutParsingResults":[{"markdown":{"text":"first page"}}]}}"# + "\n"
+            + #"{"result":{"layoutParsingResults":[{"markdown":{"text":"second page"}}]}}"#
+        MockAIURLProtocol.install([
+            .init(body: #"{"data":{"jobId":"job-1"}}"#),
+            .init(body: #"{"data":{"state":"pending"}}"#),
+            .init(body: #"{"data":{"state":"running"}}"#),
+            .init(body: #"{"data":{"state":"done","resultUrl":{"jsonUrl":"https://results.example.com/job-1.jsonl"}}}"#),
+            .init(body: result)
+        ])
+        let text = try await jobsClient().recognize(imageData: Data([1, 2, 3]), configuration: jobsConfig)
+        XCTAssertEqual(text, "first page\n\nsecond page")
+        let requests = MockAIURLProtocol.recordedRequests()
+        XCTAssertEqual(requests.count, 5)
+        XCTAssertEqual(requests[0].httpMethod, "POST")
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Authorization"), "bearer job-token")
+        XCTAssertTrue(requests[0].value(forHTTPHeaderField: "Content-Type")?.hasPrefix("multipart/form-data") == true)
+        let form = String(decoding: try XCTUnwrap(requests[0].httpBody), as: UTF8.self)
+        XCTAssertTrue(form.contains("PaddleOCR-VL-1.6"))
+        XCTAssertEqual(requests[1].url?.path, "/api/v2/ocr/jobs/job-1")
+        XCTAssertEqual(requests[3].url?.path, "/api/v2/ocr/jobs/job-1")
+        XCTAssertEqual(requests[4].url?.host, "results.example.com")
+        XCTAssertNil(requests[4].value(forHTTPHeaderField: "Authorization"), "the pre-signed result URL must not receive the token")
+    }
+
+    func testPaddleJobFailureTimeoutAndBadResponsesAreReported() async throws {
+        MockAIURLProtocol.install([.init(body: #"{"data":{"jobId":"j"}}"#),
+                                   .init(body: #"{"data":{"state":"failed","errorMsg":"bad image"}}"#)])
+        do {
+            _ = try await jobsClient().recognize(imageData: Data([1]), configuration: jobsConfig)
+            XCTFail("a failed job must throw")
+        } catch OCRError.jobFailed(let message) { XCTAssertEqual(message, "bad image") }
+
+        MockAIURLProtocol.install([.init(body: #"{"data":{"jobId":"j"}}"#)]
+            + Array(repeating: .init(body: #"{"data":{"state":"running"}}"#), count: 200))
+        do {
+            _ = try await jobsClient(jobTimeout: .milliseconds(30)).recognize(imageData: Data([1]), configuration: jobsConfig)
+            XCTFail("a job that never finishes must time out")
+        } catch OCRError.jobTimedOut {}
+
+        MockAIURLProtocol.install([.init(body: #"{"data":{}}"#)])
+        do {
+            _ = try await jobsClient().recognize(imageData: Data([1]), configuration: jobsConfig)
+            XCTFail("a submit response without a job id must throw")
+        } catch OCRError.invalidResponse {}
+
+        MockAIURLProtocol.install([.init(body: #"{"data":{"jobId":"j"}}"#),
+                                   .init(body: #"{"data":{"state":"done","resultUrl":{"jsonUrl":"http://insecure.example.com/r"}}}"#)])
+        do {
+            _ = try await jobsClient().recognize(imageData: Data([1]), configuration: jobsConfig)
+            XCTFail("a non-HTTPS result URL must be refused")
+        } catch OCRError.invalidResponse {}
+    }
+
+    func testGoogleVisionSendsKeyInHeaderAndReadsFullText() async throws {
+        MockAIURLProtocol.install([.init(body: #"{"responses":[{"fullTextAnnotation":{"text":"?? What is 2+2\n4"}}]}"#),
+                                   .init(body: #"{"responses":[{}]}"#),
+                                   .init(body: #"{"responses":[{"error":{"code":403,"message":"billing"}}]}"#)])
+        let session = URLSessionConfiguration.ephemeral
+        session.protocolClasses = [MockAIURLProtocol.self]
+        let client = OCRClient(session: URLSession(configuration: session))
+        let config = OCRConfiguration(endpoint: URL(string: "https://vision.googleapis.com/v1/images:annotate")!,
+                                      token: "g-key", format: .googleVision, model: "", identity: "test")
+        let image = Data([1, 2, 3])
+        let first = try await client.recognize(imageData: image, configuration: config)
+        XCTAssertEqual(first, "?? What is 2+2\n4")
+        let request = try XCTUnwrap(MockAIURLProtocol.recordedRequests().first)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Goog-Api-Key"), "g-key")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertFalse(request.url?.absoluteString.contains("g-key") ?? true, "the key must not be in the URL")
+        let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
+        let entry = try XCTUnwrap((body["requests"] as? [[String: Any]])?.first)
+        XCTAssertEqual(((entry["features"] as? [[String: Any]])?.first)?["type"] as? String, "DOCUMENT_TEXT_DETECTION")
+        XCTAssertEqual((entry["image"] as? [String: Any])?["content"] as? String, image.base64EncodedString())
+        let empty = try await client.recognize(imageData: image, configuration: config)
+        XCTAssertEqual(empty, "", "a page without text is empty, not an error")
+        do {
+            _ = try await client.recognize(imageData: image, configuration: config)
+            XCTFail("an error response must throw")
+        } catch OCRError.provider(let code) { XCTAssertEqual(code, 403) }
+    }
+
+    func testPaddleJobsFormatNeedsAModel() throws {
+        let settings = OCRSettingsStore(defaults: UserDefaults(suiteName: "ocr-jobs-\(UUID().uuidString)")!,
+                                        tokenService: "ocr-jobs-test-\(UUID().uuidString)")
+        XCTAssertThrowsError(try settings.testConfiguration(endpoint: "https://example.com/api/v2/ocr/jobs", token: "t", format: .paddleJobs, model: " "))
+        XCTAssertNoThrow(try settings.testConfiguration(endpoint: "https://example.com/api/v2/ocr/jobs", token: "t", format: .paddleJobs, model: "PaddleOCR-VL-1.6"))
+    }
+
     func testOversizedOCRResponseFailsBeforeJSONParsing() async throws {
         MockAIURLProtocol.install([.init(body: String(repeating: "x", count: 1024))])
         let session = URLSessionConfiguration.ephemeral

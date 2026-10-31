@@ -9,9 +9,18 @@ enum OCRProvider: String, CaseIterable, Identifiable {
 }
 
 enum OCRAPIFormat: String, CaseIterable, Identifiable, Sendable {
-    case paddleOCR, visionChat
+    case paddleOCR, paddleJobs, googleVision, visionChat
     var id: String { rawValue }
-    var label: String { self == .paddleOCR ? "PaddleOCR API" : "OpenAI-Compatible Vision API" }
+    var label: String {
+        switch self {
+        case .paddleOCR: return "PaddleOCR API"
+        case .paddleJobs: return "PaddleOCR Async Jobs"
+        case .googleVision: return "Google Cloud Vision"
+        case .visionChat: return "OpenAI-Compatible Vision API"
+        }
+    }
+    /// Formats that need a model name sent with the request.
+    var requiresModel: Bool { self == .paddleJobs || self == .visionChat }
 }
 
 struct OCRConfiguration: Sendable {
@@ -61,7 +70,7 @@ final class OCRSettingsStore: ObservableObject {
         let key = token?.trimmingCharacters(in: .whitespacesAndNewlines) ?? self.token
         guard Self.isAllowedEndpoint(endpoint), let url = URL(string: endpoint) else { throw OCRError.invalidEndpoint }
         guard !key.isEmpty else { throw OCRError.missingToken }
-        if format == .visionChat && model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw OCRError.missingModel }
+        if format.requiresModel && model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw OCRError.missingModel }
         return OCRConfiguration(endpoint: url, token: key, format: format, model: model, identity: "test")
     }
 
@@ -73,7 +82,7 @@ final class OCRSettingsStore: ObservableObject {
         if provider == .custom {
             guard Self.isAllowedEndpoint(endpoint) else { throw OCRError.invalidEndpoint }
             guard !effectiveToken.isEmpty else { throw OCRError.missingToken }
-            if format == .visionChat && model.isEmpty { throw OCRError.missingModel }
+            if format.requiresModel && model.isEmpty { throw OCRError.missingModel }
         }
         if let replacement { try OCRTokenStore.save(replacement, service: tokenService) }
         if endpoint != self.endpoint || format != self.format || model != self.model || effectiveToken != self.token {
@@ -110,7 +119,8 @@ final class OCRSettingsStore: ObservableObject {
 
 enum OCRError: LocalizedError {
     case invalidEndpoint, missingToken, missingModel, invalidResponse, emptyQuestion, unreadableImage
-    case imageTooLarge, responseTooLarge, localRecognitionFailed
+    case imageTooLarge, responseTooLarge, localRecognitionFailed, jobTimedOut
+    case jobFailed(String)
     case provider(Int), secureStorage(OSStatus)
 
     var errorDescription: String? {
@@ -126,6 +136,8 @@ enum OCRError: LocalizedError {
         case .responseTooLarge: return "The OCR provider returned too much data. Disable image output in your provider and try again."
         case .provider(401), .provider(403): return "The OCR provider rejected the access token. Check that the token matches the endpoint."
         case .provider(429): return "Your OCR provider's quota was reached. Try again later or check your account."
+        case .jobFailed(let message): return "The OCR job failed: \(message)"
+        case .jobTimedOut: return "The OCR job took too long. Try again or recognize a smaller area."
         case .provider(let code): return "The OCR provider returned error \(code). Try again or check your provider's API settings."
         case .secureStorage(let status): return "The OCR token could not be stored securely (Keychain error \(status))."
         }

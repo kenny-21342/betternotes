@@ -57,8 +57,8 @@ struct OCRSettingsView: View {
                             .autocorrectionDisabled()
                             .keyboardType(.URL)
                             .accessibilityIdentifier("ocr-endpoint")
-                        if format == .visionChat {
-                            TextField("Vision Model", text: $model)
+                        if format.requiresModel {
+                            TextField(format == .paddleJobs ? "Model (e.g. PaddleOCR-VL-1.6)" : "Vision Model", text: $model)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                         }
@@ -79,6 +79,10 @@ struct OCRSettingsView: View {
                     } footer: {
                         Text(format == .paddleOCR
                              ? "Paste the synchronous API_URL and TOKEN from AI Studio's API example. The endpoint selects the model. PaddleOCR document parsing and text recognition responses are supported."
+                             : format == .googleVision
+                             ? "Endpoint: https://vision.googleapis.com/v1/images:annotate. Paste a Google Cloud API key restricted to the Cloud Vision API. Billing must be enabled on the project; the first 1,000 pages a month are free. Maths is read as plain text, not LaTeX."
+                             : format == .paddleJobs
+                             ? "Use the job URL (ending in /api/v2/ocr/jobs), the model name and the token from AI Studio's asynchronous example. Each page takes 15–45 seconds, so results appear after a short wait."
                              : "Enter the full chat/completions endpoint and a model that accepts images. The API key is separate from your answering model's key.")
                     }
 
