@@ -31,7 +31,12 @@ enum UITestingAIStub {
     /// UI tests run on a real iPad, and writing a fake key through the normal
     /// path would put it in that device's Keychain and leave the app
     /// configured for a provider that does not exist once the test ends.
-    @MainActor static func makeSettings(defaults: UserDefaults) -> AISettingsStore {
+    ///
+    /// The stub's URL and model go into a private suite, never the app's
+    /// standard defaults: a test launch used to overwrite the real provider's
+    /// base URL and model, and nothing restored them afterwards.
+    @MainActor static func makeSettings(defaults _: UserDefaults = .standard) -> AISettingsStore {
+        let defaults = UserDefaults(suiteName: "com.kenny-lhs.betternotes.ui-testing-ai") ?? .standard
         defaults.set("https://ui-testing.invalid/v1", forKey: "ai.baseURL")
         defaults.set("ui-testing-stub", forKey: "ai.model")
         return AISettingsStore(defaults: defaults, ephemeralKey: "ui-testing-stub-key")

@@ -30,6 +30,8 @@ struct LibraryFolderTile: View {
     var colorHex: String = "4A6FA5"
     var isFavorite = false
     var acceptsDrops = true
+    /// A short horizontal tile for the folders row above the notebooks.
+    var compact = false
     var onOpen: () -> Void
     var onMove: ([UUID], String) -> Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -46,31 +48,54 @@ struct LibraryFolderTile: View {
 
     var body: some View {
         Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: 14) {
-                ZStack(alignment: .bottomLeading) {
+            VStack(alignment: .leading, spacing: compact ? 0 : 14) {
+                ZStack(alignment: compact ? .leading : .bottomLeading) {
                     RoundedRectangle(cornerRadius: 10)
                         .fill(tint.opacity(isTargeted ? 0.18 : 0.07))
-                    Image(systemName: isTargeted ? "folder.badge.plus" : "folder.fill")
-                        .resizable().scaledToFit()
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(tint)
-                        .padding(.horizontal, 22).padding(.bottom, 46).padding(.top, 12)
-                        .symbolEffect(.bounce, options: .nonRepeating, value: reduceMotion ? 0 : dropCount)
-                        .contentTransition(.symbolEffect(.replace))
-                    Text(FolderPath.name(of: path))
-                        .font(.headline).foregroundStyle(.primary)
-                        .lineLimit(2).multilineTextAlignment(.leading)
-                        .padding(16)
+                    if compact {
+                        HStack(spacing: 12) {
+                            Image(systemName: isTargeted ? "folder.badge.plus" : "folder.fill")
+                                .font(.title)
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(tint)
+                                .symbolEffect(.bounce, options: .nonRepeating, value: reduceMotion ? 0 : dropCount)
+                                .contentTransition(.symbolEffect(.replace))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(FolderPath.name(of: path)).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                                HStack(spacing: 4) {
+                                    if isFavorite { Image(systemName: "star.fill").foregroundStyle(.orange) }
+                                    Text(isTargeted ? "Move Here" : detail).foregroundStyle(isTargeted ? tint : .secondary)
+                                }
+                                .font(.caption2)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 14)
+                    } else {
+                        Image(systemName: isTargeted ? "folder.badge.plus" : "folder.fill")
+                            .resizable().scaledToFit()
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(tint)
+                            .padding(.horizontal, 22).padding(.bottom, 46).padding(.top, 12)
+                            .symbolEffect(.bounce, options: .nonRepeating, value: reduceMotion ? 0 : dropCount)
+                            .contentTransition(.symbolEffect(.replace))
+                        Text(FolderPath.name(of: path))
+                            .font(.headline).foregroundStyle(.primary)
+                            .lineLimit(2).multilineTextAlignment(.leading)
+                            .padding(16)
+                    }
                 }
-                .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                .aspectRatio(compact ? 3.2 : 3.0 / 4.0, contentMode: .fit)
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(tint.opacity(isTargeted ? 0.9 : 0.16), lineWidth: isTargeted ? 2 : 1))
                 .shadow(color: .black.opacity(isTargeted ? 0.15 : 0.04), radius: isTargeted ? 12 : 5, y: 5)
-                HStack(spacing: 6) {
-                    if isFavorite { Image(systemName: "star.fill").foregroundStyle(.orange) }
-                    Text(isTargeted ? "Move Here" : detail)
-                        .foregroundStyle(isTargeted ? tint : .secondary)
+                if !compact {
+                    HStack(spacing: 6) {
+                        if isFavorite { Image(systemName: "star.fill").foregroundStyle(.orange) }
+                        Text(isTargeted ? "Move Here" : detail)
+                            .foregroundStyle(isTargeted ? tint : .secondary)
+                    }
+                    .font(.caption2).padding(.leading, 2)
                 }
-                .font(.caption2).padding(.leading, 2)
             }
             .contentShape(Rectangle())
         }
