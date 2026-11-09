@@ -227,7 +227,11 @@ struct LibraryView: View {
     @AppStorage(AppPreferenceKey.librarySort) private var librarySort = LibrarySort.modified.rawValue
     @AppStorage(AppPreferenceKey.libraryLayout) private var libraryLayoutRaw = LibraryLayout.grid.rawValue
     @State private var isSelecting = false
-    @State private var selectedNotebookIDs: Set<UUID> = []
+    @State private var selection: Set<LibraryItemKey> = []
+    @State private var itemFrames: [LibraryItemKey: CGRect] = [:]
+    @State private var dragSelectBase: Set<LibraryItemKey>?
+    @State private var dragSelectAdds = true
+    @State private var isDragSelecting = false
     @State private var movingSelection = false
     @State private var confirmingBulkTrash = false
     @AppStorage(AppPreferenceKey.libraryFolderPaths) private var storedFolderPaths = "[]"
@@ -362,7 +366,9 @@ struct LibraryView: View {
                     librarySidebar
                         .toolbar(removing: isNotebookOpen ? .sidebarToggle : nil)
                 } detail: {
+                    // The library's own toggle (leading toolbar) replaces the system one.
                     libraryNavigation
+                        .toolbar(removing: .sidebarToggle)
                 }
                 .navigationSplitViewStyle(.balanced)
             } else {
@@ -421,27 +427,33 @@ struct LibraryView: View {
                 }
             } else {
                 ScrollView {
+                    VStack(spacing: 0) {
                     tagFilterBar
                     if !visibleFolders.isEmpty {
                         LazyVGrid(columns: folderColumns, spacing: 12) {
-                            ForEach(visibleFolders) { folder in folderTile(folder) }
+                            ForEach(visibleFolders) { folder in folderTile(folder).selectionFrame(.folder(folder.path), enabled: isSelecting) }
                         }
                         .padding(.horizontal, 28)
                         .padding(.top, 20)
                     }
                     if libraryLayout == .list {
                         LazyVStack(spacing: 8) {
-                            ForEach(sectionNotebooks) { notebook in notebookRow(notebook) }
+                            ForEach(sectionNotebooks) { notebook in notebookRow(notebook).selectionFrame(.notebook(notebook.stableID), enabled: isSelecting) }
                         }
                         .padding(.horizontal, 28)
                         .padding(.vertical, 20)
                     } else {
                         LazyVGrid(columns: columns, spacing: 24) {
-                            ForEach(sectionNotebooks) { notebook in notebookCell(notebook) }
+                            ForEach(sectionNotebooks) { notebook in notebookCell(notebook).selectionFrame(.notebook(notebook.stableID), enabled: isSelecting) }
                         }
                         .padding(28)
                     }
+                    }
+                    .coordinateSpace(name: LibraryDragSelect.space)
+                    .onPreferenceChange(NotebookFramesKey.self) { itemFrames = $0 }
+                    .simultaneousGesture(dragSelectGesture, including: isSelecting ? .all : .none)
                 }
+                .scrollDisabled(isDragSelecting)
             }
             }
         }
@@ -453,14 +465,47 @@ struct LibraryView: View {
     private let folderColumns = [GridItem(.adaptive(minimum: 190), spacing: 12, alignment: .top)]
     private var canSelect: Bool { librarySection == .notes || librarySection == .favorites || librarySection == .archive }
 
-    private func toggleSelection(_ notebook: Notebook) {
-        if selectedNotebookIDs.contains(notebook.stableID) { selectedNotebookIDs.remove(notebook.stableID) }
-        else { selectedNotebookIDs.insert(notebook.stableID) }
+    private var selectedNotebookIDs: Set<UUID> {
+        Set(selection.compactMap { if case .notebook(let id) = $0 { id } else { nil } })
+    }
+    private var selectedFolderPaths: Set<String> {
+        Set(selection.compactMap { if case .folder(let path) = $0 { path } else { nil } })
+    }
+
+    private func toggleSelection(_ key: LibraryItemKey) {
+        if selection.contains(key) { selection.remove(key) } else { selection.insert(key) }
+    }
+    private func toggleSelection(_ notebook: Notebook) { toggleSelection(.notebook(notebook.stableID)) }
+
+    /// Press and hold, then drag across notebooks to select (or deselect) a
+    /// whole run at once. The first notebook touched decides which.
+    private var dragSelectGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.25)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(LibraryDragSelect.space)))
+            .onChanged { value in
+                guard case .second(true, let drag?) = value else { return }
+                if dragSelectBase == nil {
+                    dragSelectBase = selection
+                    let hitStart = itemFrames.first { $0.value.contains(drag.startLocation) }?.key
+                    dragSelectAdds = hitStart.map { !selection.contains($0) } ?? true
+                    isDragSelecting = true
+                }
+                let rect = CGRect(x: min(drag.startLocation.x, drag.location.x), y: min(drag.startLocation.y, drag.location.y),
+                                  width: abs(drag.location.x - drag.startLocation.x), height: abs(drag.location.y - drag.startLocation.y))
+                let hit = Set(itemFrames.filter { $0.value.intersects(rect) || $0.value.contains(drag.location) }.keys)
+                let base = dragSelectBase ?? []
+                selection = dragSelectAdds ? base.union(hit) : base.subtracting(hit)
+            }
+            .onEnded { _ in
+                dragSelectBase = nil
+                isDragSelecting = false
+            }
     }
 
     private func endSelecting() {
         isSelecting = false
-        selectedNotebookIDs = []
+        selection = []
+        itemFrames = [:]
     }
 
     private func notebookCell(_ notebook: Notebook) -> some View {
@@ -544,27 +589,43 @@ struct LibraryView: View {
         }
     }
 
+    // Bulk actions treat notebooks and folders alike.
+    private var chosenNotebooks: [Notebook] { notebooks.filter { selectedNotebookIDs.contains($0.stableID) } }
+    private var chosenFolders: [NotebookFolder] { folders.filter { selectedFolderPaths.contains($0.path) } }
+
     private func bulkFavorite() {
-        let chosen = notebooks.filter { selectedNotebookIDs.contains($0.stableID) }
-        let makeFavorite = chosen.contains { !$0.isFavorite }
-        for notebook in chosen { notebook.isFavorite = makeFavorite; notebook.modifiedAt = .now }
+        let makeFavorite = chosenNotebooks.contains { !$0.isFavorite } || chosenFolders.contains { !$0.isFavorite }
+        for notebook in chosenNotebooks { notebook.isFavorite = makeFavorite; notebook.modifiedAt = .now }
+        for folder in chosenFolders { folder.isFavorite = makeFavorite; folder.modifiedAt = .now }
         _ = saveChanges()
         endSelecting()
     }
 
     private func bulkArchive() {
-        let chosen = notebooks.filter { selectedNotebookIDs.contains($0.stableID) }
-        let archiving = chosen.contains { !$0.isEffectivelyArchived }
-        for notebook in chosen where notebook.isEffectivelyArchived != archiving { toggleArchive(notebook) }
+        let archiving = chosenNotebooks.contains { !$0.isEffectivelyArchived }
+            || chosenFolders.contains { !NotebookFolders.isArchived($0.path, in: folders) }
+        for notebook in chosenNotebooks where notebook.isEffectivelyArchived != archiving { toggleArchive(notebook) }
+        for folder in chosenFolders where NotebookFolders.isArchived(folder.path, in: folders) != archiving {
+            folder.isArchived = archiving
+            folder.modifiedAt = .now
+        }
+        _ = saveChanges()
         endSelecting()
     }
 
     private func bulkTrash() {
-        for notebook in notebooks where selectedNotebookIDs.contains(notebook.stableID) {
+        // A trashed folder takes its notebooks with it, so only trash the
+        // notebooks that are not already inside a selected folder.
+        let folderPaths = selectedFolderPaths
+        for notebook in chosenNotebooks where Set(FolderPath.ancestors(including: notebook.folderName)).isDisjoint(with: folderPaths) {
             notebook.trashedAt = .now
             notebook.modifiedAt = .now
         }
         _ = saveChanges()
+        for folder in chosenFolders where folder.trashedAt == nil {
+            do { try NotebookFolders.trash(folder, in: context) } catch { operationError = error.localizedDescription }
+        }
+        NotificationCenter.default.post(name: .noteCorpusDidChange, object: nil)
         endSelecting()
     }
 
@@ -573,22 +634,27 @@ struct LibraryView: View {
         ToolbarItemGroup(placement: .bottomBar) {
             if isSelecting {
                 Button("Move", systemImage: "folder") { movingSelection = true }
+                    .disabled(selectedNotebookIDs.isEmpty)
                     .accessibilityIdentifier("library-bulk-move")
                 Spacer()
                 Button("Favorite", systemImage: "star") { bulkFavorite() }
+                    .disabled(selection.isEmpty)
                     .accessibilityIdentifier("library-bulk-favorite")
                 Spacer()
                 Button(librarySection == .archive ? "Unarchive" : "Archive", systemImage: "archivebox") { bulkArchive() }
+                    .disabled(selection.isEmpty)
                     .accessibilityIdentifier("library-bulk-archive")
                 Spacer()
                 Button("Trash", systemImage: "trash", role: .destructive) { confirmingBulkTrash = true }
+                    .disabled(selection.isEmpty)
                     .accessibilityIdentifier("library-bulk-trash")
             }
         }
     }
 
     private func folderTile(_ folder: NotebookFolder) -> some View {
-        VStack(spacing: 0) {
+        let key = LibraryItemKey.folder(folder.path)
+        return VStack(spacing: 0) {
             LibraryFolderTile(path: folder.path,
                               notebookCount: notebooks.filter { $0.folderName == folder.path && (folder.trashedAt != nil || $0.trashedAt == nil) }.count,
                               folderCount: folders.filter { $0.parentPath == folder.path && (folder.trashedAt != nil || !NotebookFolders.isTrashed($0.path, in: folders)) }.count,
@@ -596,18 +662,32 @@ struct LibraryView: View {
                               acceptsDrops: NotebookFolders.isAvailable(folder.path, in: folders),
                               compact: true,
                               onOpen: { openFolder(folder.path) }, onMove: moveNotebooks)
-                .disabled(folder.trashedAt != nil)
+                .disabled(folder.trashedAt != nil || isSelecting)
+                .overlay(alignment: .topTrailing) {
+                    if isSelecting { LibrarySelectionBadge(isSelected: selection.contains(key)).padding(6) }
+                }
+                .overlay {
+                    if isSelecting {
+                        Color.clear.contentShape(Rectangle()).onTapGesture { toggleSelection(key) }
+                            .accessibilityElement()
+                            .accessibilityLabel(folder.name)
+                            .accessibilityAddTraits(selection.contains(key) ? [.isButton, .isSelected] : .isButton)
+                            .accessibilityIdentifier("library-folder-select-\(folder.path)")
+                    }
+                }
             if let date = folder.trashedAt {
                 Text(TrashRetention.deletedLabel(date)).font(.caption2).foregroundStyle(.secondary)
                 Text("Removed in \(TrashRetention.daysRemaining(date)) days").font(.caption2).foregroundStyle(.tertiary)
             }
-            Menu { folderActions(for: folder) } label: {
-                Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
+            if !isSelecting {
+                Menu { folderActions(for: folder) } label: {
+                    Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More actions for \(folder.name)")
+                .accessibilityIdentifier("library-folder-actions-\(folder.path)")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("More actions for \(folder.name)")
-            .accessibilityIdentifier("library-folder-actions-\(folder.path)")
         }
         .transition(.scale(scale: 0.9).combined(with: .opacity))
     }
@@ -731,9 +811,17 @@ struct LibraryView: View {
         }
         .toolbar {
             // An empty item is drawn as a blank glass circle on regular-width iPads.
-            if selectedFolder != nil || horizontalSizeClass == .compact {
+            if selectedFolder != nil || horizontalSizeClass == .compact || !isNotebookOpen {
             ToolbarItem(placement: .topBarLeading) {
                 HStack(spacing: 4) {
+                // The sidebar's own toggle hides it; this one brings it back.
+                if horizontalSizeClass == .regular && columnVisibility == .detailOnly {
+                    Button {
+                        withAnimation { columnVisibility = .all }
+                    } label: { Image(systemName: "sidebar.leading").frame(width: 44, height: 44) }
+                    .accessibilityLabel("Show or Hide Sidebar")
+                    .accessibilityIdentifier("library-sidebar-toggle")
+                }
                 if let selectedFolder {
                     Button {
                         let parent = FolderPath.parent(of: selectedFolder)
@@ -781,14 +869,16 @@ struct LibraryView: View {
             }
             }
             selectionToolbar
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 4) {
-                    if canSelect {
-                        Button(isSelecting ? "Done" : "Select") {
-                            if isSelecting { endSelecting() } else { isSelecting = true }
-                        }
-                        .accessibilityIdentifier("library-select")
+            if canSelect {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(isSelecting ? "Done" : "Select") {
+                        if isSelecting { endSelecting() } else { isSelecting = true }
                     }
+                    .accessibilityIdentifier("library-select")
+                }
+                toolbarGap
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Section(AppLocalization.text("Sort")) {
                             ForEach(LibrarySort.allCases, id: \.self) { sort in
@@ -818,7 +908,9 @@ struct LibraryView: View {
                     .contentShape(Rectangle())
                     .accessibilityLabel("Sort and View")
                     .accessibilityIdentifier("library-sort-view")
-
+            }
+            toolbarGap
+            ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
                         newFolderName = ""
                         showingNewFolder = true
@@ -843,7 +935,9 @@ struct LibraryView: View {
                     .contentShape(Rectangle())
                     .accessibilityLabel("New Notebook")
                     .accessibilityIdentifier("library-new-notebook")
-
+            }
+            toolbarGap
+            ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         if librarySection == .trash && (!sectionNotebooks.isEmpty || !visibleFolders.isEmpty) {
                             Section("Trash") {
@@ -877,8 +971,16 @@ struct LibraryView: View {
                     }
                     .contentShape(Rectangle())
                     .accessibilityLabel("More")
-                }
             }
+        }
+    }
+
+    /// Separates the toolbar into one glass group per feature (iOS 26 merges
+    /// neighbouring items into a single capsule otherwise).
+    @ToolbarContentBuilder
+    private var toolbarGap: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
         }
     }
 
@@ -932,7 +1034,7 @@ struct LibraryView: View {
         .sheet(isPresented: $movingSelection) {
             MoveNotebooksSheet(notebookIDs: Array(selectedNotebookIDs), existingFolders: allFolders, onMoved: endSelecting)
         }
-        .confirmationDialog("Move \(selectedNotebookIDs.count) notebooks to Trash?", isPresented: $confirmingBulkTrash, titleVisibility: .visible) {
+        .confirmationDialog("Move \(selection.count) items to Trash?", isPresented: $confirmingBulkTrash, titleVisibility: .visible) {
             Button("Move to Trash", role: .destructive) { bulkTrash() }
             Button("Cancel", role: .cancel) {}
         }
@@ -1580,7 +1682,7 @@ private struct NotebookWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            notebookTabBar
+            if selectedNotebook == nil { notebookTabBar }
             notebookContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -1616,6 +1718,15 @@ private struct NotebookWorkspaceView: View {
     }
 
     private var notebookTabBar: some View {
+        notebookTabStrip
+            .frame(height: 56)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// Back, the open notebooks and the new-tab button. Assistant and More
+    /// belong to the editor and are added after this by `NotebookView`.
+    private var notebookTabStrip: some View {
         HStack(spacing: 8) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
@@ -1638,6 +1749,9 @@ private struct NotebookWorkspaceView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                 }
+                .onAppear {
+                    if let selectedTabID { proxy.scrollTo(selectedTabID, anchor: .center) }
+                }
                 .onChange(of: selectedTabID) { _, newID in
                     if let newID {
                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -1646,10 +1760,6 @@ private struct NotebookWorkspaceView: View {
                     }
                 }
             }
-
-            Rectangle()
-                .fill(Color.secondary.opacity(0.2))
-                .frame(width: 1, height: 26)
 
             Menu {
                 if availableNotebooks.isEmpty {
@@ -1671,11 +1781,7 @@ private struct NotebookWorkspaceView: View {
             }
             .accessibilityLabel("Open Notebook Tab")
             .accessibilityIdentifier("editor-add-tab")
-            .padding(.trailing, 8)
         }
-        .frame(height: 56)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
     }
 
     private func notebookTab(_ notebook: Notebook) -> some View {
@@ -1728,6 +1834,7 @@ private struct NotebookWorkspaceView: View {
             NotebookView(
                 notebook: selectedNotebook,
                 editorState: editorState,
+                tabStrip: AnyView(notebookTabStrip),
                 onOpenAssistantSource: openAssistantSource
             )
             // PencilKit owns stateful UIKit content, so switching notebooks

@@ -10,6 +10,7 @@ final class BetterNotesUITests: XCTestCase {
         fingerDrawingDisabledForPageSwipes = false
         app = XCUIApplication()
         app.launchArguments.append("-ui-testing")
+        app.launchArguments.append("-ui-testing-pin-page-controls")
         app.launchArguments.append(contentsOf: ["-ui-testing-store-id", UUID().uuidString])
         app.launch()
     }
@@ -147,6 +148,27 @@ final class BetterNotesUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Add Page"].exists)
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Page 1 of'")).firstMatch.exists)
         attachScreenshot(named: "iPad Editor")
+    }
+
+    /// The page number is only on screen while pages are changing.
+    func testPageControlsAppearOnlyWhilePagesChange() {
+        app.terminate()
+        app.launchArguments.removeAll { $0 == "-ui-testing-pin-page-controls" }
+        app.launch()
+        _ = openNotebook(named: uniqueTitle("Page Pill"))
+        let controls = app.descendants(matching: .any)["floating-page-controls"].firstMatch
+        XCTAssertTrue(NSPredicate(format: "isHittable == false").evaluate(with: controls) || !controls.isHittable,
+                      "page controls should be hidden while idle")
+
+        app.buttons["More"].firstMatch.tap()
+        app.buttons["Insert Page"].tap()
+        app.buttons["Portrait Page"].tap()
+        let shown = NSPredicate(format: "isHittable == true")
+        expectation(for: shown, evaluatedWith: controls)
+        waitForExpectations(timeout: 3)
+        let hidden = NSPredicate(format: "isHittable == false")
+        expectation(for: hidden, evaluatedWith: controls)
+        waitForExpectations(timeout: 10)
     }
 
     func testPageControlsStayInBottomRightCornerInBothOrientations() {
@@ -1142,6 +1164,10 @@ final class BetterNotesUITests: XCTestCase {
         createNotebook(named: second)
         let firstItem = app.buttons[first].firstMatch
         XCTAssertTrue(firstItem.waitForExistence(timeout: 8))
+        // The layout is a saved preference, so start from a known one.
+        app.buttons["library-sort-view"].tap()
+        app.buttons["Grid"].tap()
+        XCTAssertTrue(firstItem.waitForExistence(timeout: 5))
         let gridHeight = firstItem.frame.height
 
         app.buttons["library-sort-view"].tap()
@@ -1164,6 +1190,56 @@ final class BetterNotesUITests: XCTestCase {
         confirm.tap()
         XCTAssertTrue(app.buttons[first].firstMatch.waitForNonExistence(timeout: 5), "bulk trash left the first notebook")
         XCTAssertTrue(app.buttons[second].firstMatch.waitForNonExistence(timeout: 5), "bulk trash left the second notebook")
+    }
+
+    /// Folders are selected and trashed with the same Select mode as notebooks.
+    func testSelectModeCanTrashAFolderAndANotebookTogether() {
+        let name = uniqueTitle("Bulk Folder")
+        let title = uniqueTitle("Bulk Note")
+        createNotebook(named: title)
+        app.buttons["library-add-folder"].tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        field.tap()
+        field.typeText(name)
+        app.alerts.buttons["Create"].tap()
+        let tile = app.buttons["library-folder-tile-\(name)"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 4))
+
+        app.buttons["library-select"].tap()
+        app.descendants(matching: .any)["library-folder-select-\(name)"].firstMatch.tap()
+        app.buttons[title].firstMatch.tap()
+        app.buttons["library-bulk-trash"].tap()
+        let confirm = app.buttons["Move to Trash"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 4))
+        confirm.tap()
+        XCTAssertTrue(tile.waitForNonExistence(timeout: 5), "bulk trash left the folder")
+        XCTAssertTrue(app.buttons[title].firstMatch.waitForNonExistence(timeout: 5), "bulk trash left the notebook")
+    }
+
+    /// Press, hold and drag across notebooks selects them all in one gesture.
+    func testLibraryDragSelectsSeveralNotebooks() {
+        let first = uniqueTitle("Drag A")
+        let second = uniqueTitle("Drag B")
+        createNotebook(named: first)
+        createNotebook(named: second)
+        let a = app.buttons[first].firstMatch
+        let b = app.buttons[second].firstMatch
+        XCTAssertTrue(a.waitForExistence(timeout: 8))
+        XCTAssertTrue(b.waitForExistence(timeout: 8))
+
+        app.buttons["library-select"].tap()
+        a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.5,
+                   thenDragTo: b.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+                   withVelocity: .slow, thenHoldForDuration: 0.2)
+
+        app.buttons["library-bulk-trash"].tap()
+        let confirm = app.buttons["Move to Trash"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 4))
+        confirm.tap()
+        XCTAssertTrue(a.waitForNonExistence(timeout: 5), "the drag did not select the first notebook")
+        XCTAssertTrue(b.waitForNonExistence(timeout: 5), "the drag did not select the second notebook")
     }
 
     /// Duplicate, Copy/Paste and Delete in the selection menu must act on the

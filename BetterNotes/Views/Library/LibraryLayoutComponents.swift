@@ -9,6 +9,37 @@ enum LibraryLayout: String, CaseIterable {
     var icon: String { self == .grid ? "square.grid.2x2" : "list.bullet" }
 }
 
+enum LibraryDragSelect { static let space = "library-drag-select" }
+
+/// A notebook or a folder in the library. Both are selected, dragged over and
+/// acted on through the same selection.
+enum LibraryItemKey: Hashable {
+    case notebook(UUID)
+    case folder(String)
+}
+
+/// Where each notebook sits in the scrolling library, for drag-to-select.
+struct NotebookFramesKey: PreferenceKey {
+    static var defaultValue: [LibraryItemKey: CGRect] = [:]
+    static func reduce(value: inout [LibraryItemKey: CGRect], nextValue: () -> [LibraryItemKey: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+extension View {
+    /// Reports this item's frame while the library is selecting.
+    @ViewBuilder func selectionFrame(_ key: LibraryItemKey, enabled: Bool) -> some View {
+        if enabled {
+            background(GeometryReader { proxy in
+                Color.clear.preference(key: NotebookFramesKey.self,
+                                       value: [key: proxy.frame(in: .named(LibraryDragSelect.space))])
+            })
+        } else {
+            self
+        }
+    }
+}
+
 /// A checkmark badge shown on a notebook while the library is selecting.
 struct LibrarySelectionBadge: View {
     let isSelected: Bool
