@@ -50,8 +50,11 @@ struct LibraryFolderTile: View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: compact ? 0 : 14) {
                 ZStack(alignment: compact ? .leading : .bottomLeading) {
+                    // An opaque base keeps the tile readable on dark backgrounds.
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(tint.opacity(isTargeted ? 0.18 : 0.07))
+                        .fill(Color(.secondarySystemGroupedBackground))
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(tint.opacity(isTargeted ? 0.24 : 0.10))
                     if compact {
                         HStack(spacing: 12) {
                             Image(systemName: isTargeted ? "folder.badge.plus" : "folder.fill")
@@ -86,7 +89,7 @@ struct LibraryFolderTile: View {
                     }
                 }
                 .aspectRatio(compact ? 3.2 : 3.0 / 4.0, contentMode: .fit)
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(tint.opacity(isTargeted ? 0.9 : 0.16), lineWidth: isTargeted ? 2 : 1))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(tint.opacity(isTargeted ? 0.9 : 0.32), lineWidth: isTargeted ? 2 : 1))
                 .shadow(color: .black.opacity(isTargeted ? 0.15 : 0.04), radius: isTargeted ? 12 : 5, y: 5)
                 if !compact {
                     HStack(spacing: 6) {

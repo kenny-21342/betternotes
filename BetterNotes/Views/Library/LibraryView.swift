@@ -364,7 +364,7 @@ struct LibraryView: View {
             if horizontalSizeClass == .regular {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
                     librarySidebar
-                        .toolbar(removing: isNotebookOpen ? .sidebarToggle : nil)
+                        .toolbar(removing: .sidebarToggle)
                 } detail: {
                     // The library's own toggle (leading toolbar) replaces the system one.
                     libraryNavigation
@@ -513,6 +513,11 @@ struct LibraryView: View {
             if isSelecting {
                 Button { toggleSelection(notebook) } label: {
                     NotebookCover(notebook: notebook)
+                        .overlay {
+                            if selectedNotebookIDs.contains(notebook.stableID) {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.accentColor, lineWidth: 3)
+                            }
+                        }
                         .overlay(alignment: .topTrailing) {
                             LibrarySelectionBadge(isSelected: selectedNotebookIDs.contains(notebook.stableID)).padding(8)
                         }
@@ -662,7 +667,19 @@ struct LibraryView: View {
                               acceptsDrops: NotebookFolders.isAvailable(folder.path, in: folders),
                               compact: true,
                               onOpen: { openFolder(folder.path) }, onMove: moveNotebooks)
-                .disabled(folder.trashedAt != nil || isSelecting)
+                .disabled(folder.trashedAt != nil)
+                .allowsHitTesting(!isSelecting)
+                .overlay(alignment: .trailing) {
+                    if !isSelecting {
+                        Menu { folderActions(for: folder) } label: {
+                            Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(.secondary)
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("More actions for \(folder.name)")
+                        .accessibilityIdentifier("library-folder-actions-\(folder.path)")
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if isSelecting { LibrarySelectionBadge(isSelected: selection.contains(key)).padding(6) }
                 }
@@ -678,15 +695,6 @@ struct LibraryView: View {
             if let date = folder.trashedAt {
                 Text(TrashRetention.deletedLabel(date)).font(.caption2).foregroundStyle(.secondary)
                 Text("Removed in \(TrashRetention.daysRemaining(date)) days").font(.caption2).foregroundStyle(.tertiary)
-            }
-            if !isSelecting {
-                Menu { folderActions(for: folder) } label: {
-                    Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(.secondary)
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("More actions for \(folder.name)")
-                .accessibilityIdentifier("library-folder-actions-\(folder.path)")
             }
         }
         .transition(.scale(scale: 0.9).combined(with: .opacity))
@@ -811,13 +819,14 @@ struct LibraryView: View {
         }
         .toolbar {
             // An empty item is drawn as a blank glass circle on regular-width iPads.
-            if selectedFolder != nil || horizontalSizeClass == .compact || !isNotebookOpen {
+            if selectedFolder != nil || horizontalSizeClass == .compact || horizontalSizeClass == .regular {
             ToolbarItem(placement: .topBarLeading) {
                 HStack(spacing: 4) {
-                // The sidebar's own toggle hides it; this one brings it back.
-                if horizontalSizeClass == .regular && columnVisibility == .detailOnly {
+                // The only sidebar toggle: the system ones are removed so there is
+                // never a second, or an empty, button.
+                if horizontalSizeClass == .regular {
                     Button {
-                        withAnimation { columnVisibility = .all }
+                        withAnimation { columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly }
                     } label: { Image(systemName: "sidebar.leading").frame(width: 44, height: 44) }
                     .accessibilityLabel("Show or Hide Sidebar")
                     .accessibilityIdentifier("library-sidebar-toggle")
