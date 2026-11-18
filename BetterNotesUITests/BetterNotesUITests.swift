@@ -1042,16 +1042,17 @@ final class BetterNotesUITests: XCTestCase {
     func testEmptyFolderSurvivesRelaunch() {
         let name = uniqueTitle("Courses")
         app.buttons["library-add-folder"].tap()
-        let field = app.textFields["new-folder-name"]
+        // New Folder is an alert, so its field is reached through the alert.
+        let field = app.alerts.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        XCTAssertTrue(focus(field))
+        field.tap()
         field.typeText(name)
-        app.navigationBars["New Folder"].buttons["Create"].tap()
-        XCTAssertTrue(app.buttons["library-folder-\(name)"].waitForExistence(timeout: 5))
+        app.alerts.buttons["Create"].tap()
+        XCTAssertTrue(app.buttons["library-folder-tile-\(name)"].waitForExistence(timeout: 5))
 
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.buttons["library-folder-\(name)"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["library-folder-tile-\(name)"].waitForExistence(timeout: 5))
     }
 
     /// Sets a folder and tags on a notebook through its Rename sheet.

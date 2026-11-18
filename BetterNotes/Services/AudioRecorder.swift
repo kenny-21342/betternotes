@@ -162,7 +162,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate, 
             boxed.recorder?.stop()
             let deadline = Date().addingTimeInterval(2.0)
             while boxed.recorder?.isRecording == true, Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.005)
+                try? await Task.sleep(for: .milliseconds(5))
             }
             defer { try? FileManager.default.removeItem(at: url) }
             return Result {
