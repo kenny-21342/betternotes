@@ -508,6 +508,8 @@ final class BetterNotesUITests: XCTestCase {
     func testPencilProSettingsOfferEveryToolAndPersistChoice() {
         openToolbarMenu(named: "More")
         app.buttons["Settings"].tap()
+        // Settings opens on Language; the Pencil choice lives under Input.
+        app.descendants(matching: .any)["settings-section-input"].firstMatch.tap()
         let picker = app.buttons["pencil-double-tap-tool"]
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Apple Pencil Pro only.'")).firstMatch.exists)
@@ -519,6 +521,7 @@ final class BetterNotesUITests: XCTestCase {
         app.buttons["Done"].tap()
         openToolbarMenu(named: "More")
         app.buttons["Settings"].tap()
+        app.descendants(matching: .any)["settings-section-input"].firstMatch.tap()
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         XCTAssertTrue(picker.label.contains("Lasso") || (picker.value as? String)?.contains("Lasso") == true)
         // Restore the default after verifying persistence.
@@ -852,16 +855,19 @@ final class BetterNotesUITests: XCTestCase {
         createNotebook(named: physics)
         createNotebook(named: history)
 
-        // Put only the first notebook in a folder and give it a tag.
+        // Put only the first notebook in a folder and give it a tag. Notes shows
+        // only root items, so it moves out of the root list into the folder tile.
         organize(notebook: physics, folder: "Science", tags: "exam")
+        let folderTile = app.buttons["library-folder-tile-Science"]
+        XCTAssertTrue(folderTile.waitForExistence(timeout: 5), "The folder tile did not appear")
+        XCTAssertTrue(app.buttons[history].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons[physics].firstMatch.exists, "A notebook in a folder should leave the root list")
 
-        // The tag chip filters the grid down to the tagged notebook.
+        // The tag chip filters the root list down to the tagged items.
         let tagChip = app.buttons["library-tag-exam"]
         XCTAssertTrue(tagChip.waitForExistence(timeout: 5), "Tag chip did not appear")
         tagChip.tap()
-
-        XCTAssertTrue(app.buttons[physics].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons[history].firstMatch.exists, "Untagged notebook should be filtered out")
+        XCTAssertTrue(app.buttons[history].firstMatch.waitForNonExistence(timeout: 5), "Untagged notebook should be filtered out")
 
         // Clearing restores the full list.
         let clear = app.buttons["library-clear-filters"]
@@ -869,16 +875,10 @@ final class BetterNotesUITests: XCTestCase {
         clear.tap()
         XCTAssertTrue(app.buttons[history].firstMatch.waitForExistence(timeout: 5))
 
-        // On iPad the folder also appears in the sidebar and filters.
-        if app.frame.width >= 700 {
-            let folder = app.buttons["library-folder-Science"]
-            if folder.waitForExistence(timeout: 3) {
-                folder.tap()
-                XCTAssertTrue(app.buttons[physics].firstMatch.waitForExistence(timeout: 5))
-                XCTAssertFalse(app.buttons[history].firstMatch.exists, "Notebook outside the folder should be filtered out")
-                folder.tap()
-            }
-        }
+        // Opening the folder shows only what it holds.
+        folderTile.tap()
+        XCTAssertTrue(app.buttons[physics].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons[history].firstMatch.exists, "Notebook outside the folder should be filtered out")
     }
 
     func testNestedFolderFiltersIncludeChildNotebooks() {
@@ -888,15 +888,16 @@ final class BetterNotesUITests: XCTestCase {
         createNotebook(named: history)
         organize(notebook: algebra, folder: "School/Math", tags: "study")
 
-        let parent = app.buttons["library-folder-School"]
-        let child = app.buttons["library-folder-School/Math"]
+        // Opening a folder shows only its immediate children.
+        let parent = app.buttons["library-folder-tile-School"]
         XCTAssertTrue(parent.waitForExistence(timeout: 5))
-        XCTAssertTrue(child.exists)
         parent.tap()
-        XCTAssertTrue(app.buttons[algebra].firstMatch.waitForExistence(timeout: 5))
+        let child = app.buttons["library-folder-tile-School/Math"]
+        XCTAssertTrue(child.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons[algebra].firstMatch.exists, "A grandchild notebook should not appear in the parent")
         XCTAssertFalse(app.buttons[history].firstMatch.exists)
         child.tap()
-        XCTAssertTrue(app.buttons[algebra].firstMatch.exists)
+        XCTAssertTrue(app.buttons[algebra].firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons[history].firstMatch.exists)
         attachScreenshot(named: "Nested Folders")
     }
@@ -1069,6 +1070,11 @@ final class BetterNotesUITests: XCTestCase {
         XCTAssertTrue(folderField.waitForExistence(timeout: 5))
         XCTAssertTrue(focus(folderField), "the folder field never took keyboard focus")
         folderField.typeText(folder)
+        // The simulator keyboard sometimes drops the last character of the first
+        // field typed; top it up so the tests do not depend on that.
+        if let typed = folderField.value as? String, typed.count < folder.count, folder.hasPrefix(typed) {
+            folderField.typeText(String(folder.dropFirst(typed.count)))
+        }
 
         let tagsField = app.textFields["Tags, separated by commas"]
         XCTAssertTrue(tagsField.waitForExistence(timeout: 3))

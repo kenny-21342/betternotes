@@ -1,6 +1,12 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "BetterNotes Notebook" : {
+
+    },
+    "BetterNotes Notebook Reference" : {
+
+    },
     "CFBundleName" : {
       "comment" : "Bundle name",
       "extractionState" : "extracted_with_value",
