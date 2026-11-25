@@ -191,15 +191,22 @@ struct NotebookView: View {
     @GestureState private var isDraggingToolbar = false
     @StateObject private var toolSettings = ToolSettings()
     @StateObject private var deletionBanner = DeletionUndoBannerModel()
+    @State private var pageControlsVisible = false
+    @State private var pageControlsHideTask: Task<Void, Never>?
     private let onOpenAssistantSource: (UUID, UUID?) -> Void
+    /// The workspace's notebook tabs. When present, Assistant and More sit at
+    /// the end of this bar, apart from the tabs, instead of floating over the page.
+    private let tabStrip: AnyView?
 
     init(
         notebook: Notebook,
         editorState: EditorActionState,
+        tabStrip: AnyView? = nil,
         onOpenAssistantSource: @escaping (UUID, UUID?) -> Void = { _, _ in }
     ) {
         self.notebook = notebook
         self.editorState = editorState
+        self.tabStrip = tabStrip
         self.onOpenAssistantSource = onOpenAssistantSource
     }
 
@@ -213,6 +220,26 @@ struct NotebookView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let tabStrip {
+                HStack(spacing: 0) {
+                    tabStrip
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.25))
+                        .frame(width: 1, height: 26)
+                        .padding(.horizontal, 10)
+                    editorTopActions(inBar: true)
+                        .padding(.trailing, 12)
+                }
+                .frame(height: 56)
+                .background(.bar)
+                .overlay(alignment: .bottom) { Divider() }
+            }
+            editorBody
+        }
+    }
+
+    private var editorBody: some View {
         ZStack {
             if sortedPages.isEmpty {
                 ContentUnavailableView(
@@ -311,13 +338,20 @@ struct NotebookView: View {
                 .zIndex(100)
             }
 
-            editorTopActions
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.top, 10)
-                .padding(.trailing, 16)
-                .zIndex(110)
+            if tabStrip == nil {
+                editorTopActions(inBar: false)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.top, 10)
+                    .padding(.trailing, 16)
+                    .zIndex(110)
+            }
 
             editorPageBar
+                .opacity(pageControlsShown ? 1 : 0)
+                .allowsHitTesting(pageControlsShown)
+                .animation(.easeInOut(duration: 0.25), value: pageControlsShown)
+                .onChange(of: editorState.currentPageIndex) { _, _ in revealPageControls() }
+                .onChange(of: sortedPages.count) { _, _ in revealPageControls() }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(.trailing, 18)
                 .padding(.bottom, 4)
@@ -597,19 +631,54 @@ struct NotebookView: View {
         .accessibilityIdentifier("floating-page-controls")
     }
 
-    private var editorTopActions: some View {
-        HStack(spacing: 2) {
-            if assistantEnabled {
-                Button {
-                    editorState.isAssistantPresented = true
-                } label: {
-                    Image(systemName: "sparkles")
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Assistant")
-                .accessibilityIdentifier("editor-assistant")
-            }
+    private var pageControlsShown: Bool {
+        pageControlsVisible || ProcessInfo.processInfo.arguments.contains("-ui-testing-pin-page-controls")
+    }
 
+    /// The page number and arrows appear while pages are changing, then fade.
+    private func revealPageControls() {
+        pageControlsVisible = true
+        pageControlsHideTask?.cancel()
+        pageControlsHideTask = Task { @MainActor in
+            // UI tests need time between their taps, so they get a longer window.
+            try? await Task.sleep(for: .seconds(ProcessInfo.processInfo.arguments.contains("-ui-testing") ? 6 : 1.8))
+            guard !Task.isCancelled else { return }
+            pageControlsVisible = false
+        }
+    }
+
+    @ViewBuilder
+    private func editorTopActions(inBar: Bool) -> some View {
+        if inBar {
+            HStack(spacing: 2) {
+                assistantButton
+                editorMoreMenu.frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 4)
+            .background(Color.accentColor.opacity(0.12), in: Capsule())
+        } else {
+            floatingTopActions
+        }
+    }
+
+    @ViewBuilder
+    private var assistantButton: some View {
+        if assistantEnabled {
+            Button {
+                editorState.isAssistantPresented = true
+            } label: {
+                Image(systemName: "sparkles")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Assistant")
+            .accessibilityIdentifier("editor-assistant")
+        }
+    }
+
+    private var floatingTopActions: some View {
+        HStack(spacing: 2) {
+            assistantButton
             editorMoreMenu
                 .frame(width: 44, height: 44)
         }
@@ -647,6 +716,9 @@ struct NotebookView: View {
                     }
                 }
                 .disabled(isReadOnly)
+                Button("Page Overview", systemImage: "square.grid.2x2") {
+                    editorState.presentedPanel = .overview
+                }
                 Button("Page Info", systemImage: "info.circle") {
                     editorState.presentedPanel = .pageInfo
                 }
